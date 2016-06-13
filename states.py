@@ -10,9 +10,9 @@
 # A state specification string starts with a single letter corresponding to a
 # function in this file (it's a key in the dictionary called smap below).
 # Lowercase keys are for separable states while capital keys are for entangled
-# states.  Everything after that first letter is a configuration. Underscores
+# states. Everything after that first letter is a configuration. Underscores
 # separate different config sections and dashes separate params within a config
-p# section:
+# section:
 #
 #   function  | key |             config               | spec. string example
 # ------------+-----+----------------------------------+------------------------
@@ -39,6 +39,8 @@ p# section:
 #   center    |  c  |           <Lc>_<IC>              | 'c4_W'
 #             |     |                                  | 'c2_r'
 #
+# Convention:  |0> = (1, 0) is at the top of the Bloch sphere.
+#              |1> = (0, 1) is at the bottom of the Bloch sphere.
 #
 # Description of config sections:
 #   + fock: a fock state of qubits
@@ -84,6 +86,7 @@ import simulation.matrix as mx
 
 # Global constants
 # ================
+
 # dictionary of local operators and local basis (b for basis)
 # -----------------------------------------------------------
 
@@ -118,8 +121,8 @@ bvecs = {
 
 
 
-# Initial State Creation
-# ======================
+# State Creation
+# ==============
 
 # qubit on the block sphere. th is from vertical and ph is from x around z.
 # th and ph are expected in degrees
@@ -350,4 +353,4 @@ if __name__ == '__main__':
 
         print('expectation value along Z axis:')
         print(meas_list)
-    '''
+       '''

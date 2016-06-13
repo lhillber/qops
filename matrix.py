@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# -*- coding: iso-8859-15 -*-
 
 # ==============================================================
 # Functions for matrix manipulations of quantum states/operators
@@ -12,7 +13,7 @@ from functools import reduce
 import numpy as np
 import scipy.sparse as sps
 
-# apply k-site-wide op to a list of k sites (js) corresponindg to the
+# Apply k-site-wide op to a list of k sites (js) corresponindg to the
 # state-vector state.  ds is a list of local dimensions for each site of state,
 # assumed to be a lattice of qubits if not provided.
 # -------------------------------------------------------------------------------
@@ -59,55 +60,36 @@ def rdms(state, js, ds=None):
 # partial trace of a  density matrix
 # ----------------------------------
 def rdmr(rho, js):
+    print()
     L = int(log(len(rho), 2))
     d = 2*L
+
     n = len(js)
-    kin = list(js)
-    kout = [k+L for k in kin]
-    js = kin + kout
-    ordering = js + list(rest)
-    block = rho.reshape(([2]*(d)))
-    block = block.transpose(ordering)
-    block = block.reshape(2**n, 2**(d-n))
-    RDM = np.zeros((2**n,2**n), dtype=complex)
-    for i in range(2**n ):
-        Rii = sum(np.multiply(block[i,:], np.conj(block[i,:])))
-        tot = tot+Rii
-        RDM[i][i] = Rii
-        for j in range(i, 2**n):
-            if i != j:
-                Rij = np.inner(block[i,:], np.conj(block[j,:]))
-                RDM[i][j] = Rij
-                RDM[j][i] = np.conj(Rij)
-    return RDM
+    js = list(js)
+    rest = np.setdiff1d(np.arange(L), js)
+    ordering = js+list(rest)
+    orderingout = [o + L for o in ordering]
+    ordering = ordering + orderingout
+    block = rho.reshape(([2]*d)).transpose(ordering).reshape(2**(d-2*n), 2**n, 2**n)
+    print(block)
+    RDM = np.trace(block)
+    return RDM/np.trace(RDM)
 
-
-# convert base-10 to base-2
-# -------------------------
-def dec_to_bin(n, count):
-     return [(n >> y) & 1 for y in range(count-1, -1, -1)]
 
 # mememory intensive method (oldest version, V0)
 # ----------------------------------------------
 def big_mat(local_op_list, js, state):
     L = int( log(len(state), 2) )
     I_list = [np.eye(2.0, dtype=complex)]*L
-    for j, local_op in zip(js, local_op_list): 
+    for j, local_op in zip(js, local_op_list):
         I_list[j] = local_op
     big_op = listkron(I_list)
     return big_op.dot(state)
 
-# concatinate two dictionaries (second arg replaces first if keys in common)
-# --------------------------------------------------------------------------
-def concat_dicts(d1, d2):
-    d = d1.copy()
-    d.update(d2)
-    return d
-
-# concatinate a list of dictionaries
-# ----------------------------------
-def listdicts(dictlist):
-    return reduce(lambda d1, d2: concat_dicts(d1, d2), dictlist)
+# Hermitian conjugate
+# -------------------
+def dagger(mat):
+    return mat.conj().transpose()
 
 # Kroeneker product list of matrices
 # ----------------------------------
@@ -132,8 +114,26 @@ def edit_small_vals(mat, tol=1e-14, replacement=0.0):
     mat[mat<=tol] = replacement
     return mat
 
-# sparse matrix tensor product (custom)
-# -------------------------------------
+# concatinate two dictionaries (second arg replaces first if keys in common)
+# --------------------------------------------------------------------------
+def concat_dicts(d1, d2):
+    d = d1.copy()
+    d.update(d2)
+    return d
+
+# concatinate a list of dictionaries
+# ----------------------------------
+def listdicts(dictlist):
+    return reduce(lambda d1, d2: concat_dicts(d1, d2), dictlist)
+
+
+# convert n in base-10 to base-2 with count digits
+# ------------------------------------------------
+def dec_to_bin(n, count):
+     return [(n >> y) & 1 for y in range(count-1, -1, -1)]
+
+# sparse matrix tensor product (custom just for fun)
+# --------------------------------------------------
 def tensor(A, B):
     a_nrows, a_ncols = A.shape
     b_nrows, b_ncols = B.shape
@@ -148,10 +148,6 @@ def tensor(A, B):
             M[row, col] = a_val * b_val
     return M
 
-# Hermitian conjugate
-# -------------------
-def dagger(mat):
-    return mat.conj().transpose()
 
 
 if __name__ == '__main__':
@@ -165,7 +161,7 @@ if __name__ == '__main__':
     op = listkron( [ss.ops['X']]*(len(js)-1) + [ss.ops['H']] ) 
 
     print()
-    print('op = XXH,', 'js = ', str(js)+',', 'IC = ', IC)
+    print('op = XXH,', 'js = ', str(js)+', ', 'IC = ', IC)
     print()
 
     init_state3 = ss.make_state(L, IC)
@@ -180,8 +176,6 @@ if __name__ == '__main__':
     final_rj = [rdms(final_state, [j]) for j in range(L)]
     final_Z_exp = [np.trace(r.dot(ss.ops['Z'])).real for r in final_rj]
     final_Y_exp = [np.trace(r.dot(ss.ops['Y'])).real for r in final_rj]
-    print('final Z exp vals:', final_Z_exp) 
+    print('final Z exp vals:', final_Z_exp)
     print('final Y exp vals:', final_Y_exp)
 
-    #rdm_plot()
-    #comp_plot()
