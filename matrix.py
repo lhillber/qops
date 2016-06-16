@@ -201,6 +201,10 @@ def listdicts(dictlist):
 def dec_to_bin(n, count):
      return [(n >> y) & 1 for y in range(count-1, -1, -1)]
 
+# convert n in base-2 to base-10
+# ------------------------------
+def bin_to_dec(n):
+    return int(''.join(list(map(str, n))), 2)
 
 # sparse matrix tensor product (custom, just for fun)
 # ---------------------------------------------------

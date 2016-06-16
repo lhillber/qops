@@ -37,7 +37,7 @@ def exp_val(state, A):
         exp_val = np.real(np.trace(state.dot(A)))
     elif len(state.shape) == 1:
         # input is a state vector
-        exp_val = np.real(np.conj(state).dot(A.dot(state))))
+        exp_val = np.real(np.conj(state).dot(A.dot(state)))
     else:
         print('input state not understood')
         raise
@@ -48,7 +48,7 @@ def exp_val(state, A):
 # ----------------------------------
 def get_local_rhos(state):
     L = int(log(len(state), 2))
-    local_rhos = np.asarray([mx.rdms(state, j) for j in range(L)])
+    local_rhos = np.asarray([mx.rdms(state, [j]) for j in range(L)])
     return local_rhos
 
 
@@ -79,14 +79,14 @@ def get_bipartition_rhos(state):
 def get_local_exp_vals(state, A):
     local_rhos = get_local_rhos(state)
     local_exp_vals = np.asarray(
-            [exp_val(rho) for rho in local_rhos]
+            [exp_val(rho, A) for rho in local_rhos]
         )
     return local_exp_vals
 
 
 # get list of local von Neumann entropies
 # ---------------------------------------
-def get_local_entopies(state):
+def get_local_entropies(state):
     local_rhos = get_local_rhos(state)
     local_s = np.asarray([vn_entropy(rho) for rho in local_rhos])
     return local_s
