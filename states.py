@@ -130,7 +130,7 @@ bvecs = {
 def qubit(t, p):
     t = pi/180.0 * t
     p = pi/180.0 * p
-    return cos(t/2.0) * bvecs['0'] + exp(1j*p) * sin(t/2) * bvecs['1']
+    return cos(t/2.0) * bvecs['0'] + exp(1j*p) * sin(t/2.0) * bvecs['1']
 
 # helper for defining excitation and background qubits
 # ----------------------------------------------------
