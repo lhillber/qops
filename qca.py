@@ -3,6 +3,8 @@
 #
 # =============================================================================
 #
+# Description:
+# -----------
 # Simple implementation of quantum cellular automata in 1D generalized to
 # arbitrary neighborhood radius r. Quantum elementary cellular automata (QECA)
 # have r = 1. For neighborhood radius r, there are 2^2^(2*r) rules enumerated
@@ -153,7 +155,7 @@ def main():
 
         # percent complete
         progress = 100 * (sim_id+1)/n_sims
-        message ='finished simulation {}'.format(sim_id)
+        message ='finished simulation {} of {}:'.format(sim_id+1, n_sims)
         track_progress(spiner, message, progress)
 
     # save all figures
@@ -437,7 +439,7 @@ def multipage(fname, figs=None, clf=True, dpi=300, clip=True, extra_artist=False
 # track progress in line of std out
 # ---------------------------------
 def track_progress(spiner, message, progress):
-    sys.stdout.write("{0} {1}: {2:.1f} %\r".format(
+    sys.stdout.write("{0} {1} {2:.1f} %\r".format(
                     next(spiner), message, progress))
     sys.stdout.flush()
 

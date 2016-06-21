@@ -90,6 +90,7 @@ def rdmr(rho, js):
     return RDM/np.trace(RDM)
 
 
+# Thanks to Daniel Jaschke for the following two methods
 # partial trace of density marix rho, removing the first site
 # -----------------------------------------------------------
 def traceout_first(rho, ld=2):
