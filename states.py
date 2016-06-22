@@ -24,8 +24,8 @@
 #  spin_wave  |  s  |    T<n> OR t<th>-P<m> OR p<ph>   | 'sT2-p30'
 #             |     |                                  | 'sT2-P1'
 # ------------+-----+----------------------------------+------------------------
-#  rand_state |  r  | <p>-<s>_t<th>-p<ph>_t<th>-p<ph>  | 'r75_t45_p90'
-#             |     |                                  | 'r5-234-1_t45_p90'
+#  rand_state |  r  | <p>-<s>_t<th>-p<ph>_t<th>-p<ph>  | 'r75_t45-p90'
+#             |     |                                  | 'r5-234_t45-p90'
 # ------------+-----+----------------------------------+------------------------
 #  rand_throw |  R  |               <s>                | 'R234'
 # ------------+-----+----------------------------------+------------------------
@@ -82,7 +82,7 @@
 
 from cmath import sqrt, sin, cos, exp, pi
 import numpy as np
-import simulation.matrix as mx
+import matrix as mx
 
 # Global constants
 # ================

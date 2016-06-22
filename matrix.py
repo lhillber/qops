@@ -226,8 +226,6 @@ def tensor(A, B):
 
 if __name__ == '__main__':
 
-    import simulation.states as ss
-    import simulation.measures as ms
     L = 7
     IC = 'f0-3-4_t90-p90'
 

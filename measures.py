@@ -98,3 +98,5 @@ def get_bipartition_entropies(state):
     bipartition_rhos = get_bipartition_rhos(state)
     bipart_s = np.asarray([vn_entropy(rho) for rho in bipartition_rhos])
     return bipart_s
+
+

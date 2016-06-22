@@ -14,6 +14,27 @@
 # neighbors 1_0 and 0_1, where the underscore represents the site to be update, 
 # has a rule number S = 4 + 2 = 6.
 #
+# Usage:
+# -----
+# To run this file with default behavior, execute the following command in the
+# terminal while in the directory containing this scrips
+#
+#                                 python3 qca.py
+#
+# This will create a file called test.pdf which plots a space time grid of
+# expectation values of the Pauli-z operator with respect to each qubit at each
+# time step of the qca evolution. The default parameters can be set in the globally defined
+# dictionary called defaults below.
+#
+# To run the file with lists of parameters supplied from the command line, use
+#
+#    python3 qca.py "<Ls>" "<Ts>" "<Vs>" "<rs>" "<Ss>" "<Ms>" "<BCs>" "<ICs>"
+#
+# where "<PARAMs>" represents a comma separated list of PARAM supplied in
+# quotes. For example, the following will recreate the default behivor
+#
+#        python3 qca.py "16" "60" "H" "2" "20, 32488" "4" "c2_f0-1" "1-0000"
+#
 # Parameters:
 # -----------
 # 1)  L : int, length of 1D lattice (system size)
@@ -23,7 +44,7 @@
 # 5)  S : int, rule number
 # 6)  M : int or str, update mode for iterations
 # 7)  BC : str, boundary conditions
-# 8)  IC : str or tuple, initial condition. See states.py for more info
+# 8)  IC : str or list, initial condition. See states.py for more info
 #
 # More info:
 # ----------
@@ -117,53 +138,88 @@ N2 = 5736
 N3 = 26752
 N4 = 32786
 
-# default behavior
-# ----------------
+# default behavior (used if no arguments are supplied form the command line)
+# --------------------------------------------------------------------------
+defaults = {
+        'Ls' : [16],
+        'Ts' : [60],
+        'Vs' : ['H'],
+        'rs' : [2],
+        'Ss' : [20, N2+N3],
+        'Ms' : [4],
+        'ICs': ['c2_f0-1'],
+        'BCs': ['1-0000']
+        }
+
+# how to compose sim params into simulations (power set or zipped lists).
+# also used when arguments are supplied form the command line
+thread_as = 'power' # use 'power' or 'zip'
+
+
+# main loop. 
+# Add measures and plotting as needed. Use mpi4py to parallelize simulations
 def main():
-    # lists of simulation parameters
-    Ls  = [17]
-    Ts  = [60]
-    Vs  = ['X', 'HP-0']
-    rs  = [2]
-    Ss  = [4+16, N2+N3]
-    Ms  = [14]
-    ICs = ['c2_f0-1']
-    BCs = ['1-0000', '0']
+    args = sys.argv[1:]
+    nargs = len(args)
+    if nargs not in (0, 8):
+        print('incorrect number of arguments')
+        raise
+    else:
+        # supplied lists of simulation parameters
+        if nargs == 8:
+            args_dict = make_args_dict(args)
+            Ls  = args_dict['Ls']
+            Ts  = args_dict['Ts']
+            Vs  = args_dict['Vs']
+            rs  = args_dict['rs']
+            Ss  = args_dict['Ss']
+            Ms  = args_dict['Ms']
+            ICs = args_dict['ICs']
+            BCs = args_dict['BCs']
 
-    # how to compose sim params into simulations (power set or zipped lists)
-    thread_as = 'power' # use 'power' or 'zip'
-
-
-    # execution block
-    params_list = make_params_list(thread_as, Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs)
-    n_sims = len(params_list)
-    for sim_id, params in enumerate(params_list):
-        # initialize
-        time_step_gen = get_time_step_gen(**params)
-        L, T, S = [params[key] for key in ['L', 'T', 'S']]
-        exp = np.zeros((T+1,L))
-
-        # measures
-        for t, next_state in enumerate(time_step_gen):
-            exp[t,::] = ms.get_local_exp_vals(next_state, ss.ops['Z'])
-
-        # plotting
-        fig = plt.figure(sim_id)
-        ax = fig.add_subplot(111)
-        ax.imshow(exp, interpolation='None', origin='lower', vmin=-1, vmax=1)
-        ax.set_title('S = {}'.format(S))
-
-        # percent complete
-        progress = 100 * (sim_id+1)/n_sims
-        message ='finished simulation {} of {}:'.format(sim_id+1, n_sims)
-        track_progress(spiner, message, progress)
-
-    # save all figures
-    multipage('test.pdf')
+        elif nargs == 0:
+            # default lists of simulation parameters
+            Ls  = defaults['Ls']
+            Ts  = defaults['Ts']
+            Vs  = defaults['Vs']
+            rs  = defaults['rs']
+            Ss  = defaults['Ss']
+            Ms  = defaults['Ms']
+            ICs = defaults['ICs']
+            BCs = defaults['BCs']
 
 
-# use method thread_as to make list of params_dict
-# ------------------------------------------------
+        # execution block
+        params_list = make_params_list(thread_as, Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs)
+        n_sims = len(params_list)
+        for sim_id, params in enumerate(params_list):
+            # initialize
+            time_step_gen = get_time_step_gen(**params)
+            L, T, S = [params[key] for key in ['L', 'T', 'S']]
+            exp = np.zeros((T+1, L))
+
+            # measures
+            for t, next_state in enumerate(time_step_gen):
+                exp[t,::] = ms.get_local_exp_vals(next_state, ss.ops['Z'])
+
+            # plotting
+            fig = plt.figure(sim_id)
+            ax = fig.add_subplot(111)
+            ax.imshow(exp, interpolation='None', origin='lower', vmin=-1, vmax=1)
+            ax.set_title('S = {}'.format(S))
+
+            # percent complete
+            progress = 100 * (sim_id+1)/n_sims
+            message ='finished simulation {} of {}:'.format(sim_id+1, n_sims)
+            track_progress(spiner, message, progress)
+
+        # save all figures
+        multipage('test.pdf')
+
+
+
+# use method supplied b thread_as to make list of params_dict
+# -----------------------------------------------------------
 def make_params_list(thread_as, Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs):
     if thread_as in ('zip', 'cycle', 'zipcycle', 'zip_cycle', 'zip cycle'):
             params_list = zip_cycle_params_list(Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs)
@@ -201,6 +257,30 @@ def power_set_params_list(Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs):
             for M in Ms
             for IC in ICs
             for BC in BCs]
+
+
+def make_args_dict(args):
+    arg_names = ['Ls', 'Ts', 'Vs', 'rs', 'Ss', 'Ms', 'ICs', 'BCs']
+    args_dict = dict(zip(arg_names, [0]*len(arg_names)))
+    for arg_name, arg in zip(arg_names, args):
+        arg = arg2list(arg)
+        if arg_name in ('Ls', 'Ts', 'rs', 'Ss', 'Ms'):
+            arg = map_int(arg)
+        args_dict[arg_name] = arg
+    return args_dict
+
+def map_int(lst):
+    return list(map(int, lst))
+
+def el2list(el):
+    return [el]
+
+def arg2list(arg):
+    try :
+        a = arg.split(',')
+    except:
+        a = el2list(arg)
+    return a
 
 
 # dictionary data structure for simulation parameters
