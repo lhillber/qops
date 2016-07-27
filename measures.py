@@ -51,6 +51,24 @@ def get_local_rhos(state):
     local_rhos = np.asarray([mx.rdms(state, [j]) for j in range(L)])
     return local_rhos
 
+# get list of two-site density matrices
+# -------------------------------------
+def get_twosite_rhos(state):
+    L = int(log(len(state), 2))
+    twosite_rhos = np.asarray([mx.rdms(state, [j, k]) for j in range(L) for k in
+        range(j)])
+    return twosite_rhos
+
+
+def select_twosite(twosite_rhos, j, k):
+    if j == k:
+        print('[{}, {}] not valid two site indicies (cannot be the\
+                same)'.format(j, k))
+        raise
+    row = max(j, k)
+    col = min(j, k)
+    ind = sum(range(rho)) + col
+    return twosite_rhos[ind]
 
 # get list of bi-partition density matrices
 # -----------------------------------------
@@ -78,19 +96,24 @@ def get_bipartition_rhos(state):
 # ------------------------------------
 def get_local_exp_vals(state, A):
     local_rhos = get_local_rhos(state)
-    local_exp_vals = np.asarray(
-            [exp_val(rho, A) for rho in local_rhos]
-        )
+    local_exp_vals = local_exp_vals_from_rhos(local_rhos, A)
     return local_exp_vals
 
+def local_exp_vals_from_rhos(rhos, A):
+    local_exp_vals = np.asarray(
+            [exp_val(rho, A) for rho in rhos])
+    return local_exp_vals
 
 # get list of local von Neumann entropies
 # ---------------------------------------
 def get_local_entropies(state):
     local_rhos = get_local_rhos(state)
-    local_s = np.asarray([vn_entropy(rho) for rho in local_rhos])
+    local_s = np.asarray([vn_entropy(rho) for rho in rhos])
     return local_s
 
+def local_entropy_from_rhos(rhos):
+    local_s = np.asarray([vn_entropy(rho) for rho in rhos])
+    return local_s
 
 # get list of bi-partition von Neumann entropies
 # ----------------------------------------------
@@ -99,4 +122,9 @@ def get_bipartition_entropies(state):
     bipart_s = np.asarray([vn_entropy(rho) for rho in bipartition_rhos])
     return bipart_s
 
+def get_center_entropy(state):
+    L = int(log(len(state)))
+    center_rho = mx.rdms(state, list(range(int(L/2))))
+    center_s = vn_entropy(center_rho)
+    return center_s
 

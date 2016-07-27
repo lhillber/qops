@@ -17,7 +17,7 @@
 # Usage:
 # -----
 # To run this file with default behavior, execute the following command in the
-# terminal while in the directory containing this scrips
+# terminal while in the directory containing this script
 #
 #                                 python3 qca.py
 #
@@ -33,7 +33,7 @@
 # where "<PARAMs>" represents a comma separated list of PARAM supplied in
 # quotes. For example, the following will recreate the default behivor
 #
-#        python3 qca.py "16" "60" "H" "2" "20, 32488" "4" "c2_f0-1" "1-0000"
+#        python3 qca.py "16" "60" "H" "2" "20, 32488" "4" "1-0000" "c2_f0-1" 
 #
 # Parameters:
 # -----------
@@ -49,9 +49,9 @@
 # More info:
 # ----------
 # 1)  L should not exceed 27. Hilbert space dimension and thus required
-#     computational resources increases as 2^L
+#     computational resources increases as 2^L.
 #
-# 2)  T increases required computational resources only linearly
+# 2)  T increases required computational resources only linearly.
 #
 # 3)  V must be a string of keys found in the global dictionary 'ops' in
 #     states.py.  Selecting V = 'X' (Pauli-x operator) corresponds to classical
@@ -63,7 +63,7 @@
 # 4)  Increasing r will increase required simulation time because update
 #     operators are square matrices of dimension 2^(2*r + 1).
 #
-# 5)  S can no be negative or exceed 2^2^(2*r)
+# 5)  S can not be negative or exceed 2^2^(2*r)
 #
 # 6)  M defines the update ordering by providing a 'skip size', denoted d. In an
 #     iteration, sweeping the update from site 0 to L-1 has d = 1, provided by
@@ -80,16 +80,16 @@
 #     after the dash is used to configure the box boundaries. To be properly
 #     configured, BC must have 2*r characters after the dash where each
 #     character is either a '0' or a '1'. The first r characters set the left-r
-#     boundary qubits to be set to |0> or |1> depending on the provided
-#     character in the BC string.  Similarly, the last r characters set the
-#     right-r boundary qubits. For example, BC = '1-0000' is a valid
-#     configuration fo boundary conditions for QCA with r=2. It means that every
-#     state in the evolution will be of the form |00>|Psi>|00>. Setting BC =
-#     '1-0110' means every state in the evolution will be of the form
-#     |01>|Psi>|10>. Finally, setting BC = '0' will use ring boundary conditions
+#     boundary qubits to be |0> or |1> depending on the provided character in
+#     the BC string.  Similarly, the last r characters set the right-r boundary
+#     qubits. For example, BC = '1-0000' is a valid configuration for boundary
+#     conditions of QCA with r = 2. It means that every state in the evolution
+#     will be of the form |00>|Psi>|00>. Setting BC = '1-0110' means every state
+#     in the evolution will be of the form |01>|Psi>|10>. Finally, setting BC =
+#     '0' will use ring boundary conditions
 #     for evolution.
 #
-# 8)  See states.py for more info on making states with stings and tuples.
+# 8)  See states.py for more info on making states with stings or lists.
 #
 #
 # Single configuration rule numbers for r = 1 and r = 2 in the form 
@@ -114,121 +114,277 @@
 #            00_01 : 2
 #            00_00 : 1
 #
-#
-# By Logan Hillberry
-# =============================================================================
-
-import sys
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-import states as ss
-import matrix as mx
-import measures as ms
-from math import log, pi
-from cmath import exp
-from itertools import cycle
-spiner = cycle(('-', '\\','|', '/'))
-
-
-# r=2 totalistic rule numbers
+# r=2 totalistic rule numbers, defined here for convenience
 N0 = 1
 N1 = 278
 N2 = 5736
 N3 = 26752
 N4 = 32786
+#
+# By Logan Hillberry
+# =============================================================================
+
+
+# custom modules
+import states as ss
+import matrix as mx
+import measures as ms
+
+# external modules
+import h5py
+import numpy as np
+from mpi4py import MPI
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+
+# built in modules
+import os
+import sys
+from math import log, pi
+from cmath import exp, sin, cos
+from itertools import cycle
+
+# for fancy printing
+spiner = cycle(('-', '\\','|', '/'))
+
 
 # default behavior (used if no arguments are supplied form the command line)
 # --------------------------------------------------------------------------
 defaults = {
-        'Ls' : [16],
+        'Ls' : [13],
         'Ts' : [60],
-        'Vs' : ['H'],
-        'rs' : [2],
-        'Ss' : [20, N2+N3],
-        'Ms' : [4],
-        'ICs': ['c2_f0-1'],
-        'BCs': ['1-0000']
+        'Vs' : ['RP_90-180'],
+        'rs' : [1],
+        'Ss' : [1, 6, 7, 9, 14, 9],
+        'Ms' : [2],
+        'ICs': ['c1_f0'],
+        'BCs': ['1-00'],
+        'thread_as' : 'power',
+        'sub_dir'   : 'link_test',
+        'tasks'     : ['exp-X', 'exp-Y', 'exp-Z', 's', 'scenter']
         }
 
-# how to compose sim params into simulations (power set or zipped lists).
-# also used when arguments are supplied form the command line
-thread_as = 'power' # use 'power' or 'zip'
 
+implemented_time_tasks = ['one_site', 'two_site', 'sbond', 'scenter']
+implemented_meas_tasks = ['exp-X', 'exp-Y', 'exp-Z', 's']
 
-# main loop. 
-# Add measures and plotting as needed. Use mpi4py to parallelize simulations
+deps_map = {
+        'sbond'  : [],
+        'scenter': [],
+        'exp-X'  : ['one_site'],
+        'exp-Y'  : ['one_site'],
+        'exp-Z'  : ['one_site'],
+        's'      : ['one_site'],
+        'sjk'    : ['two_site'],
+        'XX'     : ['two_site'],
+        'YY'     : ['two_site'],
+        'ZZ'     : ['two_site'],
+        'XY'     : ['two_site'],
+        'YZ'     : ['two_site'],
+        'ZX'     : ['two_site'],
+        'YX'     : ['XY', 'Z'],
+        'ZY'     : ['YZ', 'X'],
+        'XZ'     : ['ZX', 'Y'],
+        'm'      : ['s', 'sjk'],
+                }
+
+# typ is 'data' or 'plots',
+# make sure project_dir points to your local clone of the qops repo
+def dir_params(typ, sub_dir):
+    return {
+            'project_dir' : os.path.expanduser('~') + \
+                            '/documents/research/cellular_automata/qeca/qops',
+            'output_dir'  : 'output',
+            'sub_dir'     : sub_dir,
+            'typ'         : typ
+            }
+
+# Unique name of simulation parameters
+def make_name(L,T, V, r, S, M, IC, BC):
+    name = 'L{}_T{}_V{}_r{}_S{}_M{}_IC{}_BC{}'.format(L, T, V, r, S, M, IC, BC)
+    return name
+
+# create and return a path, makes it if it doesn't exist
+def make_path(project_dir, output_dir, sub_dir, typ):
+    path = os.path.join(project_dir, output_dir, sub_dir, typ)
+    os.makedirs(path, exist_ok=True)
+    return path
+
 def main():
-    args = sys.argv[1:]
-    nargs = len(args)
-    if nargs not in (0, 8):
-        print('incorrect number of arguments')
-        raise
-    else:
-        # supplied lists of simulation parameters
-        if nargs == 8:
-            args_dict = make_args_dict(args)
-            Ls  = args_dict['Ls']
-            Ts  = args_dict['Ts']
-            Vs  = args_dict['Vs']
-            rs  = args_dict['rs']
-            Ss  = args_dict['Ss']
-            Ms  = args_dict['Ms']
-            ICs = args_dict['ICs']
-            BCs = args_dict['BCs']
+    # initialize parallel communication. rank is the name for each parallel
+    # process from 0 to nprocs - 1
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    nprocs = comm.Get_size()
 
-        elif nargs == 0:
-            # default lists of simulation parameters
-            Ls  = defaults['Ls']
-            Ts  = defaults['Ts']
-            Vs  = defaults['Vs']
-            rs  = defaults['rs']
-            Ss  = defaults['Ss']
-            Ms  = defaults['Ms']
-            ICs = defaults['ICs']
-            BCs = defaults['BCs']
+    args = get_args()
+    sub_dir = defaults['sub_dir']
+    thread_as = defaults['thread_as']
+    params_list = make_params_list(thread_as, *args)
+    n_sims = len(params_list)
+    tasks = defaults['tasks']
+    for sim_id, params in enumerate(params_list):
+        if sim_id % nprocs == rank:
+            name = make_name(**params)
+            master_data_path = make_path(**dir_params('data', 'master'))
+            data_path = make_path(**dir_params('data', defaults['sub_dir']))
+            data_fname = os.path.join(master_data_path, name) + '.hdf5'
+            params['name'] = name
+            params['data_fname'] = data_fname
+            h5file = run_measures(params, tasks)
+            h5file.close()
+            #os.symlink(master_data_path, data_path)
 
-
-        # execution block
-        params_list = make_params_list(thread_as, Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs)
-        n_sims = len(params_list)
-        for sim_id, params in enumerate(params_list):
-            # initialize
-            time_step_gen = get_time_step_gen(**params)
-            L, T, S = [params[key] for key in ['L', 'T', 'S']]
-            exp = np.zeros((T+1, L))
-
-            # measures
-            for t, next_state in enumerate(time_step_gen):
-                exp[t,::] = ms.get_local_exp_vals(next_state, ss.ops['Z'])
-
+            '''
             # plotting
-            fig = plt.figure(sim_id)
-            ax = fig.add_subplot(111)
+            plot_path = make_path(**dir_params('plots', defaults['sub_dir']))
+            master_plot_path = make_path(**dir_params('plots', 'master'))
+            fig = plt.figure(0)
+            ax = fig.add_subplot(1,1,1)
             ax.imshow(exp, interpolation='None', origin='lower', vmin=-1, vmax=1)
             ax.set_title('S = {}'.format(S))
+            '''
+            # TODO: move plot saving to the plotting function
+            ##multipage(plot_fname)
 
-            # percent complete
-            progress = 100 * (sim_id+1)/n_sims
-            message ='finished simulation {} of {}:'.format(sim_id+1, n_sims)
-            track_progress(spiner, message, progress)
+            # tracking progress only possible for serial simulations
+            if nprocs == 1:
+                # percent complete
+                progress = 100 * (sim_id+1)/n_sims
+                message ='finished simulation {} of {}:'.format(sim_id+1, n_sims)
+                # comment out track_progress if you want to redirect python print
+                # statements to text files in the command line (use A
+                # python qca.py !> qca_print_file.txt )
+                track_progress(spiner, message, progress)
 
-        # save all figures
-        multipage('test.pdf')
+def run_measures(params, tasks):
+    data_fname = params['data_fname']
+    h5file = h5py.File(data_fname)
+    avail_time_tasks, avail_meas_tasks = get_avail_tasks(h5file)
+    needed_time_tasks, needed_meas_tasks = check_deps(
+            tasks, avail_time_tasks, avail_meas_tasks)
+
+    needed_time_tasks = [task for task in needed_time_tasks if
+            task not in avail_time_tasks]
+    needed_meas_tasks = [task for task in needed_meas_tasks if
+            task not in avail_meas_tasks]
+    if len(needed_time_tasks) > 0:
+        time_evolve(params, needed_time_tasks, h5file)
+    if len(needed_meas_tasks) > 0:
+        measure(params, needed_meas_tasks, h5file)
+    return h5file
+
+def time_evolve(params, time_tasks, h5file):
+    # initialize
+    time_step_gen = get_time_step_gen(params)
+    L, T, S = [params[key] for key in ['L', 'T', 'S']]
+    init_args = [(L, T)]*len(time_tasks)
+    res = init_tasks(time_tasks, init_args, res={})
+    for t, next_state in enumerate(time_step_gen):
+        for task in time_tasks:
+            set_map[task](next_state, res[task], t)
+    added_time_tasks = res.pop('tasks_tmp')
+    try:
+        updated_time_tasks = np.append(
+                h5file['time_tasks'][::], added_time_tasks)
+        del h5file['time_tasks']
+    except:
+        updated_time_tasks = added_time_tasks
+    h5file['time_tasks'] = updated_time_tasks
+    save_dict_hdf5(res, h5file)
+    del res
+
+def measure(params, meas_tasks, h5file):
+    L, T, S = [params[key] for key in ['L', 'T', 'S']]
+    init_args = [(L, T)]*len(meas_tasks)
+    res = init_tasks(meas_tasks, init_args, res={})
+    for task in meas_tasks:
+        task_conf = task.split('-')
+        set_map[task_conf[0]](h5file, res[task], task)
+    added_meas_tasks = res.pop('tasks_tmp')
+    try:
+        updated_meas_tasks = np.append(
+                h5file['meas_tasks'][::], added_meas_tasks)
+        del h5file['meas_tasks']
+    except:
+        updated_meas_tasks = added_meas_tasks
+    h5file['meas_tasks'] = updated_meas_tasks
+    save_dict_hdf5(res, h5file)
+
+def get_avail_tasks(h5file):
+    try:
+        avail_time_tasks = h5file['time_tasks'][::].astype('<U9')
+    except:
+        avail_time_tasks = []
+    try:
+        avail_meas_tasks = h5file['meas_tasks'][::].astype('<U9')
+    except:
+        avail_meas_tasks = []
+    return avail_time_tasks, avail_meas_tasks
+
+def check_deps(tasks, avail_time_tasks, avail_meas_tasks):
+    time_tasks = [task for task in tasks if task in implemented_time_tasks]
+    meas_tasks = [task for task in tasks if task in implemented_meas_tasks]
+    required_time_tasks = [task for task in time_tasks if
+            task not in avail_time_tasks]
+    required_meas_tasks = [task for task in meas_tasks if
+            task not in avail_meas_tasks]
+    return recurs_check_deps(required_time_tasks, required_meas_tasks,
+            avail_time_tasks, avail_meas_tasks, requested_time_tasks=[],
+            requested_meas_tasks=[])
+
+def recurs_check_deps(time_tasks, meas_tasks, avail_time_tasks, avail_meas_tasks,
+        requested_time_tasks=[], requested_meas_tasks=[]):
+    for meas_task in meas_tasks:
+        deps = deps_map[meas_task]
+        for dep in deps:
+            if dep in implemented_time_tasks:
+                if not dep in requested_time_tasks:
+                    if not dep in avail_time_tasks:
+                        requested_time_tasks += [dep]
+            elif dep in implemented_meas_tasks:
+                if not dep in requested_meas_tasks:
+                    if not dep in avail_meas_tasks:
+                        requested_meas_tasks += [dep]
+                        required_time_tasks, required_meas_tasks =\
+                                recurs_check_deps([dep], 
+                                avail_time_tasks, avail_meas_tasks,
+                                requested_meas_tasks=requested_meas_tasks,
+                                requested_time_tasks=requested_time_tasks)
+            else:
+                raise ValueError('requested task {} is not implemented'.format(dep))
+    required_time_tasks = list(set(
+        time_tasks + requested_time_tasks + list(avail_time_tasks)))
+    required_meas_tasks = list(set(
+        meas_tasks + requested_meas_tasks + list(avail_meas_tasks)))
+
+    return required_time_tasks, required_meas_tasks
 
 
+def get_args():
+    args = sys.argv[1:]
+    nargs = len(args)
+    keys = ('Ls', 'Ts', 'Vs', 'rs', 'Ss', 'Ms', 'ICs', 'BCs')
+    if nargs not in (0, 10):
+        raise ValueError('incorrect number of arguments')
+    else:
+        # supplied lists of simulation parameters
+        if nargs == 10:
+            args_dict = make_args_dict(args)
+            defaults.update(args_dict)
+    return [defaults[key] for key in keys]
 
-# use method supplied b thread_as to make list of params_dict
-# -----------------------------------------------------------
+
+# use method supplied by thread_as to make list of params_dict
+# ------------------------------------------------------------
 def make_params_list(thread_as, Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs):
     if thread_as in ('zip', 'cycle', 'zipcycle', 'zip_cycle', 'zip cycle'):
             params_list = zip_cycle_params_list(Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs)
     elif thread_as in ('power', 'set', 'powerset', 'power_set', 'power set'):
             params_list = power_set_params_list(Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs)
     else:
-        print('Argument thread_as was given {} and is neither zip nor power'.format(
+        raise ValueError('Argument thread_as was given {} and is neither zip nor power'.format(
             thread_as))
-        raise
     return params_list
 
 
@@ -260,17 +416,17 @@ def power_set_params_list(Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs):
 
 
 def make_args_dict(args):
-    arg_names = ['Ls', 'Ts', 'Vs', 'rs', 'Ss', 'Ms', 'ICs', 'BCs']
+    arg_names = ['Ls', 'Ts', 'Vs', 'rs', 'Ss', 'Ms', 'ICs', 'BCs',
+                 'sub_dir', 'thread_as']
     args_dict = dict(zip(arg_names, [0]*len(arg_names)))
     for arg_name, arg in zip(arg_names, args):
-        arg = arg2list(arg)
-        if arg_name in ('Ls', 'Ts', 'rs', 'Ss', 'Ms'):
-            arg = map_int(arg)
+        if arg_name not in ('sub_dir', 'thread_as'):
+            arg = arg2list(arg)
+            if arg_name in ('Ls', 'Ts', 'rs', 'Ss', 'Ms'):
+                arg = list(map(int, arg))
         args_dict[arg_name] = arg
     return args_dict
 
-def map_int(lst):
-    return list(map(int, lst))
 
 def el2list(el):
     return [el]
@@ -305,21 +461,46 @@ def make_params_dict(L, T, V, r, S, M, IC, BC):
 # convert input V (string) to local unitary (2d numpy array)
 # ----------------------------------------------------------
 def get_V(V, s):
-    V_conf = V.split('-')
-    if len(V_conf) == 2:
-        V_string, ph = V_conf
-        ph = eval(ph)*pi/180.0
-        Pmat = np.array([ [1.0,  0.0 ], [0.0 , exp(1.0j*ph)] ], dtype=complex)
-        try:
-            del ss.ops['P']
-        except:
-            pass
-        ss.ops['P'] = Pmat
-    else:
-        V_string = V_conf[0]
-    Vmat= mx.listdot([ss.ops[k] for k in V_string])
-    return s*Vmat + (1-s)*ss.ops['I']
+    Vs, angs = V.split('_')
+    angs = angs.split('-')
+    ang_inds = [i for i, v in enumerate(Vs) if v in ('P', 'R', 'p')]
 
+    if len(angs) != len(ang_inds):
+        raise ValueError('impropper V configuration {}:\
+                need one phase per every phase gate'.format(V))
+    ang_id = 0
+    Vmat = np.eye(2)
+    for v in Vs:
+        if v == 'P':
+            ph = eval(angs[ang_id])*pi/180.0
+            Pmat = np.array([ [1.0,  0.0 ], 
+                              [0.0 , exp(1.0j*ph)] ],
+                              dtype=complex)
+            ss.ops['P'] = Pmat
+            ang_id += 1
+            Vmat = Vmat.dot(ss.ops[v])
+
+        elif v == 'R':
+            th = eval(angs[ang_id])*pi/180.0
+            Rmat = np.array([ [cos(th/2),  -sin(th/2) ], 
+                              [sin(th/2) , cos(th/2)] ],
+                              dtype=complex)
+            ss.ops['R'] = Rmat
+            ang_id += 1
+            Vmat = Vmat.dot(ss.ops[v])
+
+        elif v == 'p':
+            global_phase = eval(angs[ang_id])*pi/180
+            global_phase = exp(1.0j*global_phase)
+            ang_id += 1
+            Vmat = global_phase * Vmat
+
+        else:
+            try:
+                Vmat = Vmat.dot(ss.ops[v])
+            except:
+                raise ValueError('string op {} not found in states.ops'.format(v))
+    return s*Vmat + (1-s)*ss.ops['I']
 
 # gather update operators for boundaries and bulk
 # -----------------------------------------------
@@ -344,13 +525,12 @@ def get_mode(mode_name, L):
         try:
             d = int(mode_name)
         except:
-            print('mode is not swp (d=1), alt (d=2), blk (d=3), or convertible\
+            raise ValueError('mode is not swp (d=1), alt (d=2), blk (d=3), or convertible\
             to an integer step size.')
-            raise
     return make_mode_list(d, L)
 
 
-# create spatial update ordering with skip size z for lattice length L
+# create spatial update ordering with skip size d for lattice length L
 # --------------------------------------------------------------------
 def make_mode_list(d, L):
     mode_list = []
@@ -418,13 +598,13 @@ def make_boundary_Us(V, r, S, BC_conf):
 def iterate(state, U, lUs, rUs, mode_list, L, r, BC_type):
     if BC_type == '1':
         for j in mode_list:
-            if j < r:
+            if j < r:           # left boundary
                 Nj = range(0, j+r+1)
                 u = lUs[j]
-            elif L - j - 1 < r:
+            elif L - j - 1 < r: # right boundary
                 Nj = range(j-r, L)
                 u = rUs[L-j-1]
-            else:
+            else:               # bulk
                 Nj = range(j-r, j+r+1)
                 u = U
             Nj = list(Nj)
@@ -439,7 +619,7 @@ def iterate(state, U, lUs, rUs, mode_list, L, r, BC_type):
 
 # update state with T iterations, yield each new state
 # ----------------------------------------------------
-def time_evolve(state, U, lUs, rUs, mode_list, L, T, r, BC_type):
+def gen_time_step(state, U, lUs, rUs, mode_list, L, T, r, BC_type):
     yield state
     for t in range(T):
         state = iterate(state, U, lUs, rUs, mode_list, L, r, BC_type)
@@ -448,13 +628,14 @@ def time_evolve(state, U, lUs, rUs, mode_list, L, T, r, BC_type):
 
 # get a generator of time evolved states
 # --------------------------------------
-def get_time_step_gen(L, T, V, r, S, M, IC, BC):
+def get_time_step_gen(params):
     # check data type of simulation parameters
     arg_names = ['L', 'T', 'V', 'r', 'S', 'M', 'IC', 'BC']
+    L, T, V, r, S, M, IC, BC = [params[key] for key in arg_names]
     args = [L, T, V, r, S, M, IC, BC]
     given_types = [t for t in map(type, args)]
     proper_types = [(int,), (int,), (str,), (int,), (int,), (str, int),
-        (str, tuple), (str,)]
+        (str, list), (str,)]
     mask = np.array([not t in pt for t, pt in zip(given_types, proper_types)])
     if np.any(mask == True):
         def grab_bad(lst):
@@ -464,38 +645,106 @@ def get_time_step_gen(L, T, V, r, S, M, IC, BC):
             (arg_names, args, given_types, proper_types))]
 
         for arg_name, bad_arg, bad_type, proper_type in zip(*bad_inputs):
-            print('Argument {} is {} (type {}) should be one of types {}'.format(
-                arg_name, bad_arg, bad_type, proper_type))
-        raise
-    
+            raise ValueError(
+                'Argument {} is {} (type {}) should be one of types {}'.format(
+                    arg_name, bad_arg, bad_type, proper_type))
+
     # check validity of rule number
     G = 2**2**(2*r)
     if S >= G:
-        print('rule {} is invalid (need S < 2^2^(2*r) = {})'.format(S, G))
-        raise
+        raise ValueError('rule S = {} is invalid (need S < 2^2^(2*r) = {})'.format(S, G))
 
     # check validity of boundary conditions
     if BC[0] == '0':
-        BC_type, BC_conf = '0', '00'
+        BC_type, BC_conf = '0', '00' # arbitrary
     elif BC[0] == '1':
         try:
             BC_type, BC_conf = BC.split('-')
         except:
-            print('BC configuration is not formatted properly')
-            raise
+            raise ValueError('BC configuration is not formatted properly')
         if len(BC_conf) != 2*r:
-            print('BC configuration {} is not valid'.format(BC_conf))
-            raise
+            raise ValueError('BC configuration {} is not valid'.format(BC_conf))
     else:
-        print('BC type {} is not understood'.format(BC[0]))
-        raise
+        raise ValueError('BC type {} is not understood'.format(BC[0]))
 
     # execute valid time evolution
     state = ss.make_state(L, IC)
     mode_list = get_mode(M, L)
     lUs, U, rUs = get_Us(V, r, S, BC_conf)
-    time_step_gen = time_evolve(state, U, lUs, rUs, mode_list, L, T, r, BC_type)
+    time_step_gen = gen_time_step(state, U, lUs, rUs, mode_list, L, T, r, BC_type)
     return time_step_gen
+
+# block of functions allocating memory for requested results
+def init_one_site(L, T):
+    return np.zeros((T+1, L, 2, 2), dtype=complex)
+
+def init_two_site(L, T):
+    return np.zeros((T+1, int(0.5*L*(L-1)), 4, 4), dtype=complex)
+
+def init_sbond(L, T):
+    return np.zeros((T+1, L-1))
+
+def init_scalar(L, T):
+    return np.zeros(T+1)
+
+def init_vec(L, T):
+    return np.zeros((T+1,L))
+
+def init_mat(L, T):
+    return np.zeros((T+1, L, L))
+
+def init_tasks(tasks, argss, res={}):
+    for task, args in zip(tasks, argss):
+        task_conf = task.split('-')
+        res[task] = init_map[task_conf[0]](*args)
+    res['tasks_tmp'] = np.array(tasks).astype('|S9')
+    return res
+
+# dictionary naming each init function
+init_map = {
+        'one_site' : init_one_site,
+        'two_site' : init_two_site,
+        'sbond'    : init_sbond,
+        'scenter'  : init_scalar,
+        's'        : init_vec,
+        'exp'      : init_vec,
+        }
+
+
+# functions for setting time tasks
+def set_one_site(state, one_site, t):
+    one_site[t, ::, ::, ::] = ms.get_local_rhos(state)
+
+def set_two_site(state, two_site, t):
+    two_site[t, ::, ::, ::] = ms.get_twosite_rhos(state)
+
+def set_sbond(state, sbond, t):
+    sbond[t, ::] = ms.get_bipartition_entropies(state)
+
+def set_scenter(state, scenter, t):
+    scenter[t] = ms.get_center_entropy(state)
+
+# functions for setting meas tasks
+def set_exp(h5file, exp, task):
+    _, op = task.split('-')
+    rhoss = h5file['one_site'][::]
+    for t, rhos in enumerate(rhoss):
+        exp[t, ::] = ms.local_exp_vals_from_rhos(rhos, ss.ops[op])
+
+def set_local_entropy(h5file, s, task):
+    rhoss = h5file['one_site'][::]
+    for t, rhos in enumerate(rhoss):
+        s[t, ::] = ms.local_entropy_from_rhos(rhos)
+
+# dictionary naming each set function
+set_map = {
+        'one_site' : set_one_site,
+        'two_site' : set_two_site,
+        'sbond'    : set_sbond,
+        'scenter'  : set_scenter,
+        's'        : set_local_entropy,
+        'exp'      : set_exp,
+        }
 
 
 # save multipage pdfs
@@ -523,6 +772,34 @@ def track_progress(spiner, message, progress):
                     next(spiner), message, progress))
     sys.stdout.flush()
 
+# recursive save dict to hdf5 file
+# --------------------------------
+# http://codereview.stackexchange.com/questions/120802/recursively-save-python-dictionaries-to-hdf5-files-using-h5py
+def save_dict_hdf5(dic, h5file):
+    recurs_save_dict_hdf5(h5file, '/', dic)
+
+
+def recurs_save_dict_hdf5(h5file, path, dic_):
+    for key, item in dic_.items():
+        if isinstance(item, (np.ndarray, np.int64, np.float64, str, bytes)):
+            h5file[path + key] = item
+        elif isinstance(item, dict):
+            recurs_save_dict_hdf5(h5file, path + key + '/', item)
+        else:
+            raise ValueError('Cannot save %s type'%item)
+
+def load_dict_hdf5(filename):
+    with h5py.File(filename, 'r') as h5file:
+        return recurs_load_dict_hdf5(h5file, '/')
+
+def recurs_load_dict_hdf5(h5file, path):
+    ans = {}
+    for key, item in h5file[path].items():
+        if isinstance(item, h5py._hl.dataset.Dataset):
+            ans[key] = item.value
+        elif isinstance(item, h5py._hl.group.Group):
+            ans[key] = recurs_load_dict_hdf5(h5file, path + key + '/')
+    return ans
 
 
 # execute default behavior
