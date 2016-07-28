@@ -7,7 +7,7 @@
 # by Logan Hillberry
 # ===============================================================
 
-from math import log
+from math import log, sqrt
 import numpy as np
 import numpy as np
 import scipy as sp
@@ -39,8 +39,7 @@ def exp_val(state, A):
         # input is a state vector
         exp_val = np.real(np.conj(state).dot(A.dot(state)))
     else:
-        print('input state not understood')
-        raise
+        raise ValueError('Input state not understood')
     return exp_val
 
 
@@ -62,13 +61,22 @@ def get_twosite_rhos(state):
 
 def select_twosite(twosite_rhos, j, k):
     if j == k:
-        print('[{}, {}] not valid two site indicies (cannot be the\
+        raise ValueError('[{}, {}] not valid two site indicies (cannot be the\
                 same)'.format(j, k))
-        raise
     row = max(j, k)
     col = min(j, k)
-    ind = sum(range(rho)) + col
+    ind = sum(range(row)) + col
     return twosite_rhos[ind]
+
+def symm_mat_from_vec(vec):
+    N = len(vec)
+    L = int((1 + sqrt(1 + 8*N))/2)
+    mat = np.zeros((L,L))
+    for j in range(L):
+        for k in range(L):
+            if j != k:
+                mat[j ,k] = select_twosite(vec, j, k)
+    return mat
 
 # get list of bi-partition density matrices
 # -----------------------------------------
@@ -104,16 +112,37 @@ def local_exp_vals_from_rhos(rhos, A):
             [exp_val(rho, A) for rho in rhos])
     return local_exp_vals
 
+def get_exp2_vals(state, A, B):
+    twostie_rhos = get_twosite_rhos(state)
+    exp2_mat = exp2_vals_from_rhos(twosite_rhos, A, B)
+    return exp2_mat
+
+def exp2_vals_from_rhos(rhos, A, B):
+    exp2_vals = np.asarray(
+            [exp_val(rho, np.kron(A,B)) for rho in rhos])
+    exp2_mat = symm_mat_from_vec(exp2_vals)
+    return exp2_mat
+
 # get list of local von Neumann entropies
 # ---------------------------------------
 def get_local_entropies(state):
     local_rhos = get_local_rhos(state)
-    local_s = np.asarray([vn_entropy(rho) for rho in rhos])
+    local_s = local_entropies_from_rhos(local_rhos)
     return local_s
 
-def local_entropy_from_rhos(rhos):
-    local_s = np.asarray([vn_entropy(rho) for rho in rhos])
-    return local_s
+def local_entropies_from_rhos(rhos):
+    s = np.asarray([vn_entropy(rho) for rho in rhos])
+    return s
+
+def get_twosite_entropies(state):
+    twosite_rhos = get_twosite_rhos(state)
+    twosite_s_mat = local2
+    return twosite_s_mat
+
+def twosite_enropies_from_rhos(rhos):
+    twosite_s = np.asarray([vn_entropy(rho) for rho in rhos])
+    twosite_s_mat = symm_mat_from_vec(twosite_s)
+    return twosite_s_mat
 
 # get list of bi-partition von Neumann entropies
 # ----------------------------------------------
@@ -127,4 +156,53 @@ def get_center_entropy(state):
     center_rho = mx.rdms(state, list(range(int(L/2))))
     center_s = vn_entropy(center_rho)
     return center_s
+
+# mutual information
+# ------------------
+
+def get_MI(state, eps=1e-14):
+    s = get_local_entropies(state)
+    s2 = get_twosite_entropies(state)
+    return MI_from_entropies(s, s2, eps=eps)
+
+def MI_from_rhos(onesite, twosite, eps=1e-14):
+    s  = local_entropies_from_rhos(onesite)
+    s2 = twosite_entropies_from_rhos(twosite)
+    return MI_from_entropies(s, s2, eps=eps)
+
+def MI_from_entropies(s, s2, eps=1e-14):
+    L = len(s)
+    MI = np.zeros((L, L))
+    for j in range(L):
+        for k in range(j):
+            if j != k:
+                MI[j,k] = s[j] + s[k] - s2[j, k]
+                MI[k,j] = MI[j,k]
+            elif j == k:
+                MI[j,k] = eps
+    return MI
+
+# g2_{j,k}(A,B) = <AB> - <A><B> correlator
+# ----------------------------------------
+def get_g2(state, A, B):
+    exp2 = get_exp2_vals(state, A, B)
+    exp1a = get_local_exp(state, A)
+    exp1b = get_local_exp(state, B)
+    return g2_from_exps(exp2, exp1a, exp1b)
+
+def g2_from_rhos(onesite,_twosite, A, B):
+    exp2 = exp2_vals_from_rhos(twosite, A, B)
+    exp1a = local_exp_vals_from_rhos(onesite, A)
+    exp1b = local_exp_vals_from_rhos(onesite, B)
+    return g2_from_exps(exp2, exp1a, exp1b)
+
+def g2_from_exps(exp2, exp1a, exp1b):
+    L = len(exp1a)
+    g2 = np.zeros((L, L))
+    for j in range(L):
+        for k in range(j):
+            g2[j,k] = exp2[j,k] - exp1a[j] * exp1b[k]
+            g2[k,j] = g2[j,k]
+    return g2
+
 

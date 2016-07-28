@@ -140,12 +140,11 @@ from matplotlib.backends.backend_pdf import PdfPages
 # built in modules
 import os
 import sys
+import time
+import errno
 from math import log, pi
-from cmath import exp, sin, cos
 from itertools import cycle
-
-# for fancy printing
-spiner = cycle(('-', '\\','|', '/'))
+from cmath import exp, sin, cos
 
 
 # default behavior (used if no arguments are supplied form the command line)
@@ -155,48 +154,23 @@ defaults = {
         'Ts' : [60],
         'Vs' : ['RP_90-180'],
         'rs' : [1],
-        'Ss' : [1, 6, 7, 9, 14, 9],
+        'Ss' : [1, 6, 7, 9, 14],
         'Ms' : [2],
         'ICs': ['c1_f0'],
         'BCs': ['1-00'],
         'thread_as' : 'power',
         'sub_dir'   : 'link_test',
-        'tasks'     : ['exp-X', 'exp-Y', 'exp-Z', 's', 'scenter']
+        'tasks'     : ['g2-ZZ', 'g2-XY', 'g2-XZ', 'MI']
         }
-
-
-implemented_time_tasks = ['one_site', 'two_site', 'sbond', 'scenter']
-implemented_meas_tasks = ['exp-X', 'exp-Y', 'exp-Z', 's']
-
-deps_map = {
-        'sbond'  : [],
-        'scenter': [],
-        'exp-X'  : ['one_site'],
-        'exp-Y'  : ['one_site'],
-        'exp-Z'  : ['one_site'],
-        's'      : ['one_site'],
-        'sjk'    : ['two_site'],
-        'XX'     : ['two_site'],
-        'YY'     : ['two_site'],
-        'ZZ'     : ['two_site'],
-        'XY'     : ['two_site'],
-        'YZ'     : ['two_site'],
-        'ZX'     : ['two_site'],
-        'YX'     : ['XY', 'Z'],
-        'ZY'     : ['YZ', 'X'],
-        'XZ'     : ['ZX', 'Y'],
-        'm'      : ['s', 'sjk'],
-                }
 
 # typ is 'data' or 'plots',
 # make sure project_dir points to your local clone of the qops repo
 def dir_params(typ, sub_dir):
-    return {
-            'project_dir' : os.path.expanduser('~') + \
-                            '/documents/research/cellular_automata/qeca/qops',
-            'output_dir'  : 'output',
-            'sub_dir'     : sub_dir,
-            'typ'         : typ
+    return {                              # location of this file
+            'project_dir' : os.path.dirname(os.path.realpath(__file__)),
+            'output_dir'  : 'qca_output', # appends to project_dir
+            'sub_dir'     : sub_dir,      # appends to output_dir
+            'typ'         : typ           # appends to sub_dir (plots or data)
             }
 
 # Unique name of simulation parameters
@@ -209,6 +183,16 @@ def make_path(project_dir, output_dir, sub_dir, typ):
     path = os.path.join(project_dir, output_dir, sub_dir, typ)
     os.makedirs(path, exist_ok=True)
     return path
+
+def symlink_force(target, link_name):
+    try:
+        os.symlink(target, link_name)
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            os.remove(link_name)
+            os.symlink(target, link_name)
+        else:
+            raise e
 
 def main():
     # initialize parallel communication. rank is the name for each parallel
@@ -225,20 +209,32 @@ def main():
     tasks = defaults['tasks']
     for sim_id, params in enumerate(params_list):
         if sim_id % nprocs == rank:
+            t0 = time.time()
             name = make_name(**params)
+            # file names
             master_data_path = make_path(**dir_params('data', 'master'))
-            data_path = make_path(**dir_params('data', defaults['sub_dir']))
-            data_fname = os.path.join(master_data_path, name) + '.hdf5'
-            params['name'] = name
-            params['data_fname'] = data_fname
-            h5file = run_measures(params, tasks)
-            h5file.close()
-            #os.symlink(master_data_path, data_path)
-
-            '''
-            # plotting
-            plot_path = make_path(**dir_params('plots', defaults['sub_dir']))
+            master_data_fname = os.path.join(master_data_path, name) + '.hdf5'
             master_plot_path = make_path(**dir_params('plots', 'master'))
+            master_plot_fname = os.path.join(master_plot_path, name) + '.pdf'
+            # sym link names
+            data_path = make_path(**dir_params('data', defaults['sub_dir']))
+            data_fname = os.path.join(data_path, name) + '.hdf5'
+            plot_path = make_path(**dir_params('plots', defaults['sub_dir']))
+            plot_fname = os.path.join(plot_path, name) + '.pdf'
+
+            params['name'] = name
+            params['data_fname'] = master_data_fname
+            params['plot_fname'] = master_plot_fname
+
+            h5file = h5py.File(master_data_fname)
+            h5file, tasks_added = run_required(params, tasks, h5file)
+            h5file.close()
+            symlink_force(master_data_fname, data_fname)
+            t_elapsed = time.time() - t0
+            print(print_string(params, rank, tasks_added, t_elapsed))
+
+            # plotting
+            '''
             fig = plt.figure(0)
             ax = fig.add_subplot(1,1,1)
             ax.imshow(exp, interpolation='None', origin='lower', vmin=-1, vmax=1)
@@ -248,18 +244,26 @@ def main():
             ##multipage(plot_fname)
 
             # tracking progress only possible for serial simulations
-            if nprocs == 1:
-                # percent complete
-                progress = 100 * (sim_id+1)/n_sims
-                message ='finished simulation {} of {}:'.format(sim_id+1, n_sims)
-                # comment out track_progress if you want to redirect python print
-                # statements to text files in the command line (use A
-                # python qca.py !> qca_print_file.txt )
-                track_progress(spiner, message, progress)
 
-def run_measures(params, tasks):
-    data_fname = params['data_fname']
-    h5file = h5py.File(data_fname)
+def print_string(params, rank, tasks_added, t_elapsed):
+    print_string = '\n' + ('='*80) +'\n'
+    print_string += 'Rank: {}\n'.format(rank)
+    if len(tasks_added) == 0:
+        print_string += 'Nothing to add to {}\n'.format(params['name'])
+    else:
+        print_string += 'Updated: {}\n'.format(params['name'])
+        print_string += 'with {}\n'.format(tasks_added)
+    print_string += 'total file size: {:.2f} MB\n'.format(
+            os.path.getsize(params['data_fname'])/1e6)
+    print_string +='took: {:.2f} s\n'.format(t_elapsed)
+    print_string += 'data at:\n'
+    print_string += params['data_fname'] + '\n'
+    print_string += 'plots at:\n'
+    print_string += params['plot_fname'] + '\n'
+    print_string += '='*80
+    return print_string
+
+def run_required(params, tasks, h5file):
     avail_time_tasks, avail_meas_tasks = get_avail_tasks(h5file)
     needed_time_tasks, needed_meas_tasks = check_deps(
             tasks, avail_time_tasks, avail_meas_tasks)
@@ -272,7 +276,8 @@ def run_measures(params, tasks):
         time_evolve(params, needed_time_tasks, h5file)
     if len(needed_meas_tasks) > 0:
         measure(params, needed_meas_tasks, h5file)
-    return h5file
+    tasks_added = needed_time_tasks + needed_meas_tasks
+    return h5file, tasks_added
 
 def time_evolve(params, time_tasks, h5file):
     # initialize
@@ -282,7 +287,7 @@ def time_evolve(params, time_tasks, h5file):
     res = init_tasks(time_tasks, init_args, res={})
     for t, next_state in enumerate(time_step_gen):
         for task in time_tasks:
-            set_map[task](next_state, res[task], t)
+            task_map[task]['set'](next_state, res[task], t)
     added_time_tasks = res.pop('tasks_tmp')
     try:
         updated_time_tasks = np.append(
@@ -299,8 +304,8 @@ def measure(params, meas_tasks, h5file):
     init_args = [(L, T)]*len(meas_tasks)
     res = init_tasks(meas_tasks, init_args, res={})
     for task in meas_tasks:
-        task_conf = task.split('-')
-        set_map[task_conf[0]](h5file, res[task], task)
+        task_slim = task.split('-')[0]
+        task_map[task_slim]['set'](h5file, res, task)
     added_meas_tasks = res.pop('tasks_tmp')
     try:
         updated_meas_tasks = np.append(
@@ -324,42 +329,50 @@ def get_avail_tasks(h5file):
 
 def check_deps(tasks, avail_time_tasks, avail_meas_tasks):
     time_tasks = [task for task in tasks if task in implemented_time_tasks]
-    meas_tasks = [task for task in tasks if task in implemented_meas_tasks]
+    meas_tasks = [task for task in tasks if task.split('-')[0] in implemented_meas_tasks]
     required_time_tasks = [task for task in time_tasks if
             task not in avail_time_tasks]
     required_meas_tasks = [task for task in meas_tasks if
             task not in avail_meas_tasks]
-    return recurs_check_deps(required_time_tasks, required_meas_tasks,
+    needed_time_tasks, needed_meas_tasks = recurs_check_deps(
+            required_time_tasks, required_meas_tasks,
             avail_time_tasks, avail_meas_tasks, requested_time_tasks=[],
             requested_meas_tasks=[])
+    return needed_time_tasks, needed_meas_tasks[::-1]
 
 def recurs_check_deps(time_tasks, meas_tasks, avail_time_tasks, avail_meas_tasks,
         requested_time_tasks=[], requested_meas_tasks=[]):
     for meas_task in meas_tasks:
-        deps = deps_map[meas_task]
+        meas_task_slim = meas_task.split('-')[0]
+        deps = task_map[meas_task_slim]['deps'](meas_task)
         for dep in deps:
-            if dep in implemented_time_tasks:
+            dep_slim = dep.split('-')[0]
+            if dep_slim in implemented_time_tasks:
                 if not dep in requested_time_tasks:
                     if not dep in avail_time_tasks:
                         requested_time_tasks += [dep]
-            elif dep in implemented_meas_tasks:
+            elif dep_slim in implemented_meas_tasks:
                 if not dep in requested_meas_tasks:
                     if not dep in avail_meas_tasks:
                         requested_meas_tasks += [dep]
                         required_time_tasks, required_meas_tasks =\
-                                recurs_check_deps([dep], 
+                                recurs_check_deps([], [dep],
                                 avail_time_tasks, avail_meas_tasks,
                                 requested_meas_tasks=requested_meas_tasks,
                                 requested_time_tasks=requested_time_tasks)
             else:
                 raise ValueError('requested task {} is not implemented'.format(dep))
-    required_time_tasks = list(set(
-        time_tasks + requested_time_tasks + list(avail_time_tasks)))
-    required_meas_tasks = list(set(
-        meas_tasks + requested_meas_tasks + list(avail_meas_tasks)))
+    required_time_tasks = unique(
+        time_tasks + requested_time_tasks + list(avail_time_tasks))
+    required_meas_tasks = unique(
+        meas_tasks + requested_meas_tasks + list(avail_meas_tasks))
 
     return required_time_tasks, required_meas_tasks
 
+def unique(seq):
+    seen = set()
+    seen_add = seen.add
+    return [x for x in seq if not (x in seen or seen_add(x))]
 
 def get_args():
     args = sys.argv[1:]
@@ -383,7 +396,8 @@ def make_params_list(thread_as, Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs):
     elif thread_as in ('power', 'set', 'powerset', 'power_set', 'power set'):
             params_list = power_set_params_list(Ls, Ts, Vs, rs, Ss, Ms, ICs, BCs)
     else:
-        raise ValueError('Argument thread_as was given {} and is neither zip nor power'.format(
+        raise ValueError(
+            'Argument thread_as was given {} and is neither zip nor power'.format(
             thread_as))
     return params_list
 
@@ -420,7 +434,7 @@ def make_args_dict(args):
                  'sub_dir', 'thread_as']
     args_dict = dict(zip(arg_names, [0]*len(arg_names)))
     for arg_name, arg in zip(arg_names, args):
-        if arg_name not in ('sub_dir', 'thread_as'):
+        if not arg_name in ('sub_dir', 'thread_as'):
             arg = arg2list(arg)
             if arg_name in ('Ls', 'Ts', 'rs', 'Ss', 'Ms'):
                 arg = list(map(int, arg))
@@ -428,14 +442,11 @@ def make_args_dict(args):
     return args_dict
 
 
-def el2list(el):
-    return [el]
-
 def arg2list(arg):
     try :
         a = arg.split(',')
     except:
-        a = el2list(arg)
+        a = [arg]
     return a
 
 
@@ -443,12 +454,12 @@ def arg2list(arg):
 # ---------------------------------------------------
 def make_params_dict(L, T, V, r, S, M, IC, BC):
     return {
-            'L' : L,
-            'T' : T,
-            'V' : V,
-            'r' : r,
-            'S' : S,
-            'M' : M,
+            'L'  : L,
+            'T'  : T,
+            'V'  : V,
+            'r'  : r,
+            'S'  : S,
+            'M'  : M,
             'IC' : IC,
             'BC' : BC
             }
@@ -674,79 +685,6 @@ def get_time_step_gen(params):
     time_step_gen = gen_time_step(state, U, lUs, rUs, mode_list, L, T, r, BC_type)
     return time_step_gen
 
-# block of functions allocating memory for requested results
-def init_one_site(L, T):
-    return np.zeros((T+1, L, 2, 2), dtype=complex)
-
-def init_two_site(L, T):
-    return np.zeros((T+1, int(0.5*L*(L-1)), 4, 4), dtype=complex)
-
-def init_sbond(L, T):
-    return np.zeros((T+1, L-1))
-
-def init_scalar(L, T):
-    return np.zeros(T+1)
-
-def init_vec(L, T):
-    return np.zeros((T+1,L))
-
-def init_mat(L, T):
-    return np.zeros((T+1, L, L))
-
-def init_tasks(tasks, argss, res={}):
-    for task, args in zip(tasks, argss):
-        task_conf = task.split('-')
-        res[task] = init_map[task_conf[0]](*args)
-    res['tasks_tmp'] = np.array(tasks).astype('|S9')
-    return res
-
-# dictionary naming each init function
-init_map = {
-        'one_site' : init_one_site,
-        'two_site' : init_two_site,
-        'sbond'    : init_sbond,
-        'scenter'  : init_scalar,
-        's'        : init_vec,
-        'exp'      : init_vec,
-        }
-
-
-# functions for setting time tasks
-def set_one_site(state, one_site, t):
-    one_site[t, ::, ::, ::] = ms.get_local_rhos(state)
-
-def set_two_site(state, two_site, t):
-    two_site[t, ::, ::, ::] = ms.get_twosite_rhos(state)
-
-def set_sbond(state, sbond, t):
-    sbond[t, ::] = ms.get_bipartition_entropies(state)
-
-def set_scenter(state, scenter, t):
-    scenter[t] = ms.get_center_entropy(state)
-
-# functions for setting meas tasks
-def set_exp(h5file, exp, task):
-    _, op = task.split('-')
-    rhoss = h5file['one_site'][::]
-    for t, rhos in enumerate(rhoss):
-        exp[t, ::] = ms.local_exp_vals_from_rhos(rhos, ss.ops[op])
-
-def set_local_entropy(h5file, s, task):
-    rhoss = h5file['one_site'][::]
-    for t, rhos in enumerate(rhoss):
-        s[t, ::] = ms.local_entropy_from_rhos(rhos)
-
-# dictionary naming each set function
-set_map = {
-        'one_site' : set_one_site,
-        'two_site' : set_two_site,
-        'sbond'    : set_sbond,
-        'scenter'  : set_scenter,
-        's'        : set_local_entropy,
-        'exp'      : set_exp,
-        }
-
-
 # save multipage pdfs
 # -------------------
 def multipage(fname, figs=None, clf=True, dpi=300, clip=True, extra_artist=False):
@@ -802,7 +740,185 @@ def recurs_load_dict_hdf5(h5file, path):
     return ans
 
 
+# Measures
+# ========
+implemented_time_tasks = ['one_site', 'two_site', 'sbond', 'scenter']
+implemented_meas_tasks = ['exp', 'exp2', 's', 's2', 'MI', 'g2']
+
+# functions for dependencies of tasks
+def dep_g2(task):
+    _, ops = task.split('-')
+    deps = ['exp2-'+ops, 'exp-'+ops[0], 'exp-'+ops[1]]
+    return deps
+
+def dep_MI(task):
+    return ['s', 's2']
+
+def dep_one_site(task):
+    return ['one_site']
+
+def dep_two_site(task):
+    return ['two_site']
+
+# functions allocating memory for requested results
+def init_one_site(L, T):
+    return np.zeros((T+1, L, 2, 2), dtype=complex)
+#
+def init_two_site(L, T):
+    return np.zeros((T+1, int(0.5*L*(L-1)), 4, 4), dtype=complex)
+#
+def init_sbond(L, T):
+    return np.zeros((T+1, L-1))
+#
+def init_scalar(L, T):
+    return np.zeros(T+1)
+#
+def init_vec(L, T):
+    return np.zeros((T+1,L))
+#
+def init_mat(L, T):
+    return np.zeros((T+1, L, L))
+
+
+# functions for setting time tasks
+def set_one_site(state, one_site, t):
+    one_site[t, ::, ::, ::] = ms.get_local_rhos(state)
+#
+def set_two_site(state, two_site, t):
+    two_site[t, ::, ::, ::] = ms.get_twosite_rhos(state)
+#
+def set_sbond(state, sbond, t):
+    sbond[t, ::] = ms.get_bipartition_entropies(state)
+#
+def set_scenter(state, scenter, t):
+    scenter[t] = ms.get_center_entropy(state)
+#
+# functions for setting meas tasks
+def set_exp(h5file, res, task):
+    exp = res[task]
+    _, op = task.split('-')
+    deps = task_map['exp']['deps'](task)
+    rhoss, = gather_deps(h5file, res, deps)
+    for t, rhos in enumerate(rhoss):
+        exp[t, ::] = ms.local_exp_vals_from_rhos(rhos, ss.ops[op])
+
+def set_exp2(h5file, res, task):
+    exp2 = res[task]
+    _, ops = task.split('-')
+    deps = task_map['exp2']['deps'](task)
+    rhoss, = gather_deps(h5file, res, deps)
+    for t, rhos in enumerate(rhoss):
+        exp2[t, ::, ::] = ms.exp2_vals_from_rhos(
+                rhos, ss.ops[ops[0]], ss.ops[ops[1]])
+
+def set_s(h5file, res, task):
+    s = res[task]
+    deps = task_map['s']['deps'](task)
+    rhoss, = gather_deps(h5file, res, deps)
+    for t, rhos in enumerate(rhoss):
+        s[t, ::] = ms.local_entropies_from_rhos(rhos)
+
+def set_s2(h5file, res, task):
+    s2 = res[task]
+    deps = task_map['s2']['deps'](task)
+    rhoss, = gather_deps(h5file, res, deps)
+    for t, rhos in enumerate(rhoss):
+        s2[t, ::, ::] = ms.twosite_enropies_from_rhos(rhos)
+
+def set_MI(h5file, res, task):
+    MI = res[task]
+    deps = task_map['MI']['deps'](task)
+    ss, s2s = gather_deps(h5file, res, deps)
+    for t, (s, s2) in enumerate(zip(ss, s2s)):
+        MI[t,::, ::] = ms.MI_from_entropies(s, s2)
+
+def set_g2(h5file, res, task):
+    g2 = res[task]
+    deps = task_map['g2']['deps'](task)
+    exp2s, exp1as, exp1bs = gather_deps(h5file, res, deps)
+    for t, (exp2, exp1a, exp1b) in enumerate(zip(exp2s, exp1as, exp1bs)):
+        g2[t,::, ::] = ms.g2_from_exps(exp2, exp1a, exp1b)
+
+# Init a set of tasks as a dictionary
+def init_tasks(tasks, argss, res={}):
+    for task, args in zip(tasks, argss):
+        task_slim = task.split('-')[0]
+        res[task] = task_map[task_slim]['init'](*args)
+    res['tasks_tmp'] = np.array(tasks).astype('|S9')
+    return res
+
+# gather a lsit of required dependencies, same order as given to deps
+def gather_deps(h5file, res, deps):
+    new_avail = [k for k in res.keys()]
+    old_avail = [k for k in h5file.keys()]
+    out = []
+    for dep in deps:
+        if dep in new_avail:
+            out += [res[dep]]
+        elif dep in old_avail:
+            out += [h5file[dep][::]]
+    return out
+
+task_map = {
+    'one_site' : {
+        'init' : init_one_site,
+        'set'  : set_one_site
+            },
+
+    'two_site' : {
+        'init' : init_two_site,
+        'set'  : set_two_site
+            },
+
+    'sbond'    : {
+        'init' : init_sbond,
+        'set'  : set_sbond
+            },
+
+    'scenter'  : {
+        'init' : init_scalar,
+        'set'  : set_scenter
+            },
+
+    's'    : {
+        'deps' : dep_one_site,
+        'init' : init_vec,
+        'set'  : set_s,
+            },
+
+    's2'   : {
+        'deps' : dep_two_site,
+        'init' : init_mat,
+        'set'  : set_s2
+            },
+
+    'g2'   : {
+        'deps' : dep_g2,
+        'init' : init_mat,
+        'set'  : set_g2
+            },
+
+    'MI'   : {
+        'deps' : dep_MI,
+        'init' : init_mat,
+        'set'  : set_MI
+            },
+
+    'exp'  : {
+        'deps' : dep_one_site,
+        'init' : init_vec,
+        'set'  : set_exp
+            },
+
+    'exp2' : {
+        'deps' : dep_two_site,
+        'init' : init_mat,
+        'set'  : set_exp2
+            }
+        }
+
+
 # execute default behavior
-# ----------------
+# ------------------------
 if __name__ == '__main__':
     main()
