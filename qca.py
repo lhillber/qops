@@ -21,10 +21,9 @@
 #
 #                                 python3 qca.py
 #
-# This will create a file called test.pdf which plots a space time grid of
-# expectation values of the Pauli-z operator with respect to each qubit at each
-# time step of the qca evolution. The default parameters can be set in the
-# globally defined dictionary called defaults below.
+# This will create a folder called 'default' which  contains the data and plots
+# for a few QECA simulations. The default parameters can be set in the globally
+# defined dictionary called defaults below.
 #
 # To run the file with lists of parameters supplied from the command line, use
 #
@@ -33,15 +32,16 @@
 # where each "<PARAMs>" represents a space separated list of PARAM supplied in
 # quotes. For example, the following will recreate the default behivor
 #
-# python3 qca.py "15" "60" "H" "1" "1 6 9 14" "2" "c1_f0" "1-00" "MI g2-ZZ g2-XX g2-YY scenter" "default" "power"
+# python3 qca.py "15" "60" "H" "1" "1 6 9 14" "2" "c1_f0" "1-00" "g2-XX g2-YY g2-ZZ D C Y scenter" "default" "power"
 #
 # To run independent simulations in parallel, execute
 #
 #                  mpiexec -np <nprocs> python3 pca.py
 #
 # where <nprocs> is the number of parallel processes to be used (between 4 and 8
-# is a reasonable number for most modern laptops). You can still supply
-# command line arguments detailing a list of simulations to be executed as described above.
+# is a reasonable number for most modern laptops). You can still supply command
+# line arguments detailing a list of simulations to be executed as described
+# above.
 #
 #
 # Simulation Parameters:
@@ -69,7 +69,7 @@
 # 2)  T increases required computational resources linearly.
 #
 # 3)  V must be a string of keys found in the global dictionary 'ops' in
-#     states.py.  Selecting V = 'X' (Pauli-x operator) corresponds to classical
+#     states.py. Selecting V = 'X' (Pauli-x operator) corresponds to classical
 #     evolution when provided with a Fock state initial condition. Selecting V =
 #     'H' (Hadamard) or V = 'HP_45' (Hadamard times 45 degree phase gate) causes
 #     decisively quantum behavior.
@@ -102,8 +102,7 @@
 #     conditions of QCA with r = 2. It means that every state in the evolution
 #     will be of the form |00>|Psi>|00>. Setting BC = '1-0110' means every state
 #     in the evolution will be of the form |01>|Psi>|10>. Finally, setting BC =
-#     '0' will use ring boundary conditions
-#     for evolution.
+#     '0' will use ring boundary conditions for evolution.
 #
 # 9)  tasks may be requested as high-level calculations and dependencies are
 #     automatically handled. For example if 'g2-XY' is a requested task, then
@@ -140,7 +139,7 @@
 #                                         [a2, b1, c2],
 #                                         [a2, b1, c3])
 #         b) thread_as = 'cycle':
-#            zip-cycle  shorter lists e.g.,
+#            zip-cycleshorter lists e.g.,
 #            "a1 a2" " b1" "c1 c2 c3" -> ([a1, b1, c1],
 #                                         [a2, b1, c2],
 #                                         [a1, b1, c3])
@@ -185,8 +184,8 @@ N4 = 32786
 #
 # How to add a new measure:
 # ------------------------
-# This file implements a general way of adding measures. Measures are split into
-# two types of tasks `time tasks` and `measure tasks`. Time tasks are those
+# This file implements a general way of adding new measures. Measures are split
+# into two types of tasks 'time tasks' and 'measure tasks'. Time tasks are those
 # which require the entire quantum state to compute and are thus quite
 # computationally intensive (include things like one and two site reduced
 # density matrices and bond entropy calculations). Measure tasks are those that
@@ -194,8 +193,8 @@ N4 = 32786
 # and two site expectation values can be calculated with one and two site
 # reduced density matrices. The g_2 correlator can be calculated from the one
 # and two site expectation values). To add a new measure, the following steps
-# can be followed (for each step I'll show the steps for adding the network
-# measure `network_density`):
+# can be followed (for each step, I'll show the steps for adding the network
+# measure 'network_density' using the unique key 'D'):
 #
 # 1) Write a function into measures.py that can calculate your measure
 #
@@ -205,14 +204,14 @@ N4 = 32786
 #     return sum(sum(mat))/lsq
 #
 #
-# 2) Add a key for the function name to the list of inmplemented_meas_tasks
-# (search for it; its a globally defined list. I'll use `D` in the example).
+# 2) Add a key for the function name to the list of implemented_meas_tasks
+# (search for it; its a globally defined list. I'll use 'D' in this example).
 #
 # implemented_meas_tasks = ['exp', 'exp2', 's', 's2', 'MI', 'g2', 'C', 'Y', 'D']
 #
 #
 # 3) Write or choose a dependencies function (network density is a network
-# measure on the mutual information, so it's only dependency is `MI` which is
+# measure on the mutual information, so it's only dependency is 'MI' which is
 # already implemented with its dependencies.)
 #
 # def dep_MI(task):
@@ -227,7 +226,7 @@ N4 = 32786
 #
 #
 # 5) write a set function which calls the function from step 1) at each step of
-# the time evolution. Follow this general pattern. Note
+# the time evolution. Follow this general pattern.
 #
 # def set_D(h5file, res, task):
 #     D = res[task]
@@ -238,7 +237,7 @@ N4 = 32786
 #
 #
 # 5) Put it all together as a dictionary in the task_map dictionary (another
-# globbaly defined variable; search for it.)
+# globaly defined variable; search for it.)
 #
 # task_map = {
 # ...
@@ -250,11 +249,11 @@ N4 = 32786
 # ...
 # }
 #
-# And that's it! Just add your new key (e.g. `D`) to the list of tasks in the
+# And that's it! Just add your new key (e.g. 'D') to the list of tasks in the
 # default params dictionary below or request it from the command line.
 #
 # By Logan Hillberry
-# Last updated 21 August 2016
+# Last updated 1 September 2016
 # =============================================================================
 
 
@@ -282,7 +281,6 @@ from itertools import cycle, zip_longest
 
 # plotting defaults
 mpl.rcParams['text.usetex'] = True
-mpl.rcParams['text.latex.preamble'] = [r'\usepackage{amsmath}']
 font = {'size':12, 'weight' : 'normal'}
 mpl.rcParams['mathtext.fontset'] = 'stix'
 mpl.rcParams['font.family'] = 'STIXGeneral'
@@ -569,7 +567,7 @@ def get_V(V, s):
 
 # single QCA iteration (one time step)
 def iterate(state, U, lUs, rUs, mode_list, L, r, BC_type):
-    # if box boundar conditioins ore requested
+    # if box boundary conditions ore requested
     if BC_type == '1':
         # Loop through all sites in the order given by mode_list
         for j in mode_list:
@@ -590,7 +588,7 @@ def iterate(state, U, lUs, rUs, mode_list, L, r, BC_type):
             # update the state. Lots of magic here! See matrix.py for more details.
             state = mx.op_on_state(u, Nj, state)
 
-    # if ring boundar conditions are requested
+    # if ring boundary conditions are requested
     elif BC_type == '0':
         for j in mode_list:
             # use a % b := a mod b to make the neighborhoods live on a ring
@@ -781,7 +779,6 @@ def make_params_dict(L, T, V, r, S, M, IC, BC):
 # ========
 
 # typ is 'data' or 'plots',
-# make sure project_dir points to your local clone of the qops repo
 def dir_params(typ, sub_dir):
     return {                              # location of this file
             'project_dir' : os.path.dirname(os.path.realpath(__file__)),
@@ -1111,7 +1108,7 @@ def gather_deps(h5file, res, deps):
             raise ValueError('Dependency error, \'{}\' not available'.format(dep))
     return out
 
-# make sure all required dependincies get computed if they're not available
+# make sure all required dependencies get computed if they're not available
 def check_deps(tasks, h5file):
     avail_time_tasks, avail_meas_tasks = get_avail_tasks(h5file)
     # separate tasks into time and meas
@@ -1123,7 +1120,7 @@ def check_deps(tasks, h5file):
             avail_time_tasks, avail_meas_tasks,
             requested_time_tasks=[], requested_meas_tasks=[])
 
-    # final list of needed taks plus their dependencies
+    # final list of needed tasks plus their dependencies
     needed_time_tasks = [task for task in required_time_tasks if
             task not in avail_time_tasks]
     needed_meas_tasks = [task for task in required_meas_tasks if
@@ -1131,7 +1128,7 @@ def check_deps(tasks, h5file):
     # reverse meas_tasks so dependencies get calculated first
     return needed_time_tasks, needed_meas_tasks[::-1]
 
-# recursivly check dependencies
+# recursively check dependencies
 def recurs_check_deps(time_tasks, meas_tasks, avail_time_tasks, avail_meas_tasks,
         requested_time_tasks=[], requested_meas_tasks=[]):
     for meas_task in meas_tasks:
@@ -1249,6 +1246,7 @@ def plot_network_measures(fignum, nm_tasks, h5file, xspan=None):
         nm = h5file[task][::]
         name = r'$\mathcal{%s}$' % task
         plot_scalar(ax, nm, '', 'Iteration', name)
+
 
 # execute default behavior
 # ------------------------
