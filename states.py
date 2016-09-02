@@ -1,22 +1,21 @@
 #!/usr/bin/python3
 #
 # =============================================================================
-# This file is used to store useful matrices as a global constants in a
-# dictionary. It also enables the creation of quantum states. The make_state
-# function takes a lattice size L and a state specification IC, which is either
-# a string or a list of tuples. The List of tuples is for global superpositions:
-# each tuple contains a coefficient and a state specification string.
+# This file enables the creation of quantum states. The make_state function
+# takes a lattice size L and a state specification IC, which is either a string
+# or a list of tuples. The List of tuples is for global superpositions: each
+# tuple contains a coefficient and a state specification string.
 #
-# A state specification string starts with a single letter corresponding to a
-# function in this file (it's a key in the dictionary called smap below).
-# Lowercase keys are for separable states while capital keys are for entangled
-# states. Everything after that first letter is a configuration. Underscores
-# separate different config sections and dashes separate params within a config
-# section:
+# A state specification string (spec. string in the table below) starts with a
+# single letter corresponding to a function in this file (it's a key in the
+# dictionary called smap).  Lowercase keys are for separable states while
+# capital keys are for entangled states. Everything after that first letter is a
+# configuration. Underscores separate different config sections and dashes
+# separate params within a config section:
 #
 #   function  | key |             config               | spec. string example
 # ------------+-----+----------------------------------+------------------------
-#             |     |                                  | 'f0-3_t90-p0_t45_p180'
+#             |     |                                  | 'f0-3_t90-p0_t45-p180'
 #     fock    |  f  |<i-j-k...>_t<th>-p<ph>_t<th>-p<ph>| 'f2_t90-p90'
 #             |     |                                  | 'f0-2-4-6'
 # ------------+-----+----------------------------------+------------------------
@@ -36,43 +35,58 @@
 #      W      |  W  |                NA                | 'W'
 # ------------+-----+----------------------------------+------------------------
 #             |     |                                  | 'c1_f0'
-#   center    |  c  |           <Lc>_<IC>              | 'c4_W'
-#             |     |                                  | 'c2_r'
+#   center    |  c  |    _  <Lc>_<spec. string>        | 'c4_W'
+#             |     |                                  | 'c2_r5'
 #
-# Convention:  |0> = (1, 0) is at the top of the Bloch sphere.
-#              |1> = (0, 1) is at the bottom of the Bloch sphere.
+# superposition:
+# --------------
+#
+# Superpose the states of any number of spec. strings using a list of tuples.
+# Each tuple has two elements, the first is a coefficient and the second is the
+# spec. string, e.g.
+#
+#            [(coeff_0, spec. string_0), ..., coeff_N, spec. string_N)].
+#
+# For example, the follwoing is equivalent to 'B0-1_2'
+#
+#                   [(1.0/sqrt(2), 'f0'), (1.0/sqrt(2), 'f1')]]
+#
+# Conventions: |0> = (1, 0) is at the top of the Bloch sphere. Is an 'excitation'
+#              |1> = (0, 1) is at the bottom, and is the 'background'
+#              th = theta is the polar angle in degrees winds from 0 to 90.
+#              ph = phi is the azimuthal angle in degrees winds from 0 to 180.
 #
 # Description of config sections:
-#   + fock: a fock state of qubits
+#   + fock: f<i-j-k...>_t<th>-p<ph>_t<th>-p<ph> a fock state of qubits
 #       + section 1, <i-j-k...>: site indices of excitation
 #       + section 2, t<th>-p<ph>: theta and phi in deg on Bloch sphere describing
 #                                excitation qubits (default t180_p0 if not given)
 #       + section 3, t<th>-p<ph>: theta and phi in deg on Bloch sphere describing
 #                                background qubits (default t0_p0 if not given)
 #
-#   + spin_wave: fock states with twists in theta and/or phi across the lattice
+#   + spin_wave: st/T<th>-p/P<m> fock states with twists in theta and/or phi across the lattice
 #       + section 1, t<th> (p<ph>) holds theta (phi) constant at th (ph)
 #                    T<n> (P<m>) winds theta (phi) n (m) times
 #
-#   + rand_state: a random fock state:
+#   + rand_state: r<p>-<s>_t<th>-p<ph>_t<th>-p<ph> a random fock state:
 #       + section 1, <p>: probability of excitation at each site expressed as an
-#                         int. That is, p=75 means prop of 3/4 for an excitation
+#                         int, e.g.  p=75 means prob of 3/4 for an excitation
 #                    <s>: OPTIONAL - seed for random number generator
 #       + sections 2 and 3, same as sections 2 and 3 in fock above
 #
-#   + rand_throw: random qubits:
+#   + rand_throw: R<s> random qubits:
 #       + section 1, <s>: seed for random number generator
 #
-#   + Bell: a member of the Bell basis embedded in the lattice
+#   + Bell: B<j-k>_<b> a member of the Bell basis embedded in the lattice
 #       + section 1 <j-k>: two site indices to share the bell state
 #       + section 2 <b>: specify which Bell state according to b=0, 1, 2, or 3.
-#                       0 : 1/sqrt 2 (|00>+|11>)
-#                       1 : 1/sqrt 2 (|00>-|11>)
-#                       2 : 1/sqrt 2 (|01>+|10>)
-#                       3 : 1/sqrt 2 (|01>-|10>)
+#                       b=0 : 1/sqrt 2 (|00>+|11>)
+#                       b=1 : 1/sqrt 2 (|00>-|11>)
+#                       b=2 : 1/sqrt 2 (|01>+|10>)
+#                       b=3 : 1/sqrt 2 (|01>-|10>)
 #
-#   + center: embed any IC into the center of the lattice
-#       + section 1 <LC>, the length of the central region. <IC> some other
+#   + center: c<Lc>-<spec. string> embed any IC into the center of the lattice
+#       + section 1 <Lc>, the length of the central region. <IC> some other
 #         IC spec
 #
 #
@@ -82,41 +96,18 @@
 
 from cmath import sqrt, sin, cos, exp, pi
 import numpy as np
-import matrix as mx
+from matrix import listkron
 
 # Global constants
 # ================
 
 # dictionary of local operators and local basis (b for basis)
 # -----------------------------------------------------------
-
-ops = {
-        'H' : 1.0 / sqrt(2.0) * \
-              np.array( [[1.0,  1.0 ],[1.0,  -1.0]], dtype=complex),
-
-        'I' : np.array( [[1.0,  0.0 ],[0.0,   1.0]], dtype=complex ),
-        'X' : np.array( [[0.0,  1.0 ],[1.0,   0.0]], dtype=complex ),
-        'Y' : np.array( [[0.0, -1.0j],[1.0j,  0.0]], dtype=complex ),
-        'Z' : np.array( [[1.0,  0.0 ],[0.0 , -1.0]], dtype=complex ),
-
-        'S' : np.array( [[1.0,  0.0 ],[0.0 , 1.0j]], dtype=complex ),
-        'T' : np.array( [[1.0,  0.0 ],[0.0 , exp(1.0j*pi/4.0)]], dtype=complex ),
-
-        '0' : np.array( [[1.0,   0.0],[0.0,   0.0]], dtype=complex ),
-        '1' : np.array( [[0.0,   0.0],[0.0,   1.0]], dtype=complex ),
-      }
-
-
-
-brhos = {
-        '0' : np.array( [[1.0,   0.0],[0.0,   0.0]], dtype=complex ),
-        '1' : np.array( [[0.0,   0.0],[0.0,   1.0]], dtype=complex ),
-        }
-
+# |0> and |1>
 bvecs = {
-        '0'  : np.array( [1.0, 0.0], dtype=complex ),
-        '1'  : np.array( [0.0, 1.0], dtype=complex ),
-        'es' : np.array( [1./sqrt(2), 1./sqrt(2)], dtype=complex ),
+        '0'  : np.array([1.0, 0.0], dtype=complex),
+        '1'  : np.array([0.0, 1.0], dtype=complex),
+        'es' : np.array([1./sqrt(2), 1./sqrt(2)], dtype=complex)
         }
 
 
@@ -138,14 +129,14 @@ def make_config_dict(config):
     config_list = config.split('_')
     n = len(config_list)
     if n == 1:
-        conf_dict = {'ex_list' : [int(ex) for ex in config.split('-')],
+        config_dict = {'ex_list' : [int(ex) for ex in config.split('-')],
                 'ex_config' : {'t':180, 'p':0},
                 'bg_config' : {'t':0, 'p':0} }
 
     elif n == 2:
         ex_list = [int(ex) for ex in config_list[0].split('-')]
         ex_config = {ang[0] : eval(ang[1:]) for ang in config_list[1].split('-')}
-        conf_dict = {'ex_list': ex_list,
+        config_dict = {'ex_list': ex_list,
                 'ex_config' : ex_config,
                 'bg_config' : {'t':0, 'p':0} }
 
@@ -153,10 +144,12 @@ def make_config_dict(config):
         ex_list = [int(ex) for ex in config_list[0].split('-')]
         ex_config = {ang[0] : eval(ang[1:]) for ang in config_list[1].split('-')}
         bg_config = {ang[0] : eval(ang[1:]) for ang in config_list[2].split('-')}
-        conf_dict = {'ex_list': ex_list,
+        config_dict = {'ex_list': ex_list,
                 'ex_config' : ex_config,
                 'bg_config' : bg_config}
-    return conf_dict
+    else:
+        print(config_list)
+    return config_dict
 
 
 # create Fock state
@@ -167,7 +160,7 @@ def fock(L, config):
     qubits = np.array([qubit(**config_dict['bg_config'])]*L)
     for ex in ex_list:
         qubits[ex, ::] = qubit(**config_dict['ex_config'])
-    state = mx.listkron(qubits)
+    state = listkron(qubits)
     return state
 
 
@@ -177,8 +170,8 @@ def GHZ (L, congif):
     s1=['1']*(L)
     s2=['0']*(L)
     state = (1.0/sqrt(2.0)) \
-            * (mx.listkron([bvecs[key] for key in s1]) \
-            +   mx.listkron([bvecs[key] for key in s2]))
+            * (listkron([bvecs[key] for key in s1]) \
+            +   listkron([bvecs[key] for key in s2]))
 
     return state
 
@@ -200,7 +193,7 @@ def Bell(L, config):
         state = 1/sqrt(2)*(fock(L, j) + coeff*fock(L, k))
 
     elif typ in ('0', '1'):
-        state = 1/sqrt(2)*(mx.listkron([qubit(0.0, 0.0)]*L) + coeff*fock(L, jk))
+        state = 1/sqrt(2)*(listkron([qubit(0.0, 0.0)]*L) + coeff*fock(L, jk))
     return state
 
 # create qubits with uniform (lowercase) or winding (capital) theta and phi
@@ -210,14 +203,13 @@ def spin_wave(L, config):
     ang_dict = {'T' : np.linspace(0.0,  pi*float(Tt[1:]), L),
                 't' : [float(Tt[1:])]*L,
                 'P' : np.linspace(0.0, 2*pi*float(Pp[1:]), L),
-                'p' : [float(Pp[1:])]*L,
-                    }
+                'p' : [float(Pp[1:])]*L}
     th_list = ang_dict[Tt[0]]
     ph_list = ang_dict[Pp[0]]
     qubit_list = [0.0]*L
     for j, (th, ph) in enumerate(zip(th_list, ph_list)):
         qubit_list[j] = qubit(th, ph)
-    return mx.listkron(qubit_list)
+    return listkron(qubit_list)
 
 # create a random state of excitation and bacground qubits
 # --------------------------------------------------------
@@ -251,7 +243,7 @@ def rand_state(L, config):
     if s is not None:
         np.random.seed(int(s))
     distrib = np.random.choice(['ex','bg'], size=L, p=prob)
-    return mx.listkron([state_dict[i] for i in distrib])
+    return listkron([state_dict[i] for i in distrib])
 
 
 # random throw in Hilbert space
@@ -279,19 +271,19 @@ def center(L, config):
     else:
         config_dict = make_config_dict('0')
     bg_qubit = qubit(**config_dict['bg_config'])
-    left = mx.listkron([bg_qubit for _ in range(len_L)])
+    left = listkron([bg_qubit for _ in range(len_L)])
     cent = make_state(len_cent, cent_IC)
-    right = mx.listkron([bg_qubit for _ in range(len_R)])
+    right = listkron([bg_qubit for _ in range(len_R)])
     if len_back == 0:
         return cent
     elif len_back == 1:
-        return mx.listkron([cent, right])
+        return listkron([cent, right])
     else:
-        return mx.listkron([left, cent, right])
+        return listkron([left, cent, right])
 
 
-# make the specified state
-# ------------------------
+# functions to make the specified state
+# -------------------------------------
 smap = { 'f' : fock,
          'c' : center,
          's' : spin_wave,
@@ -311,10 +303,10 @@ def make_state (L, IC):
     elif type(IC) == list:
         state = np.zeros(2**L, dtype = complex)
         for s in IC:
-            name = s[0][0]
-            config = s[0][1:]
-            coeff = s[1]
-            state = state + coeff * smap[name](L, config)
+            coeff = s[0]
+            name = s[1][0]
+            config = s[1][1:]
+            state += coeff * smap[name](L, config)
     return state
 
 
@@ -323,34 +315,12 @@ if __name__ == '__main__':
     import simulation.states as ss
     import simulation.time_evolve as te
     import matplotlib.pyplot as plt
+    L = 8
+    ICs = ['f0-3_t90-p0_t45-p180', 'f2_t90-p90', 'f0-2-4-6', 'st90-P1', 'sT2-p30',
+        'sT2-P1', 'r75_t45-p90', 'r5-234_t45-p90', 'R234', 'B0-1_3', 'G', 'W', 'c1_f0',
+        'c4_W', 'c2_r5', [(1/sqrt(2), 'f0'), (1/sqrt(2), 'f1')]]
 
-    state = make_state(4,'B0-1_3')
-    rho12 = mx.rdms(state, [0,1])
-    print(ms.vn_entropy(rho12))
+    for IC_id, IC in enumerate(ICs):
+        state = make_state(L,IC)
+    print('pass!')
 
-    '''
-    L_list = [4]
-    # spin down (or |1>) at sites 0 and 2 spin up (or |0>) at 1 and 3
-    IC_list = ['f0-2']
-    for L, IC in zip(L_list, IC_list):
-        print ("L = ", str(L), " IC = ", str(IC) )
-        print('Expect spin down (or |1>) at sites 0 and 2. Spin up (or |0>) at 1 and 3')
-
-        print()
-
-        print('state vector:')
-        state = make_state(L, IC)
-        print(state)
-
-        print()
-
-        # reduced density matrix for each site calculated from the state
-        rho_list = [mx.rdms(state, [j]) for j in range(L)]
-
-        # measure z projection at each site. Take real part because measurements
-        # of Hermitian ops always give a real result
-        meas_list = [np.trace(rho.dot(ss.ops['Z'])).real for rho in rho_list ]
-
-        print('expectation value along Z axis:')
-        print(meas_list)
-       '''

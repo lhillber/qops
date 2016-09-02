@@ -9,16 +9,31 @@
 
 
 from math import log
+from cmath import sqrt, sin, cos, exp, pi
 from functools import reduce
 import numpy as np
 import scipy.sparse as sps
 
+# global dictionary of common 2x2 operators
+ops = {
+        'H' : 1.0 / sqrt(2.0) * \
+              np.array( [[1.0,  1.0 ],[1.0,  -1.0]], dtype=complex),
+        'I' : np.array( [[1.0,  0.0 ],[0.0,   1.0]], dtype=complex ),
+        'X' : np.array( [[0.0,  1.0 ],[1.0,   0.0]], dtype=complex ),
+        'Y' : np.array( [[0.0, -1.0j],[1.0j,  0.0]], dtype=complex ),
+        'Z' : np.array( [[1.0,  0.0 ],[0.0 , -1.0]], dtype=complex ),
+        'S' : np.array( [[1.0,  0.0 ],[0.0 , 1.0j]], dtype=complex ),
+        'T' : np.array( [[1.0,  0.0 ],[0.0 , exp(1.0j*pi/4.0)]], dtype=complex),
+        '0' : np.array( [[1.0,   0.0],[0.0,   0.0]], dtype=complex ),
+        '1' : np.array( [[0.0,   0.0],[0.0,   1.0]], dtype=complex ),
+      }
 
-# apply k-site-wide op to a list of k sites (js) corresponindg to the
-# state-vector state.  ds is a list of local dimensions for each site of state,
-# assumed to be a lattice of qubits if not provided.
+
+# apply k-site-wide op to a list of k sites (js) of to the state-vector state.
+# ds is a list of local dimensions for each site of state, and a
+# lattice of qubits (d=2) is assumed if ds is not provided.
 # -------------------------------------------------------------------------------
-def op_on_state(op, js, state, ds = None):
+def op_on_state(op, js, state, ds=None):
     if ds is None:
         L = int( log(len(state), 2) )
         ds = [2]*L
@@ -73,7 +88,7 @@ def rdms(state, js, ds=None):
 # partial trace of density matrix rho, keeping sites with indices js
 # ------------------------------------------------------------------
 def rdmr(rho, js):
-    print()
+    print('WARNING: this function is NOT verified')
     L = int(log(len(rho), 2))
     d = 2*L
 
@@ -120,12 +135,133 @@ def traceout_last(rho, ld=2):
             rho1n[kk, jj] = np.sum(rho[kk, jj, mask])
     return rho1n
 
+# convert input V (string) to local unitary (2d numpy array)
+def make_U2(V):
+    # split input string (V) into op string (Vs) and angle string (angs) at underscore
+    Vs_angs = V.split('_')
+    if len(Vs_angs) == 2:
+        Vs, angs = Vs_angs
+        # further split angle string at dashes into individual angles
+        angs = angs.split('-')
+    elif len(Vs_angs) == 1:
+        Vs, angs = Vs_angs[0], []
+    # get the indices of the string Vs which require an angle parameter. Right
+    # now this supports 'P' for phase gates and 'R' for orthogonal matrices, and
+    # 'p' for global phase
+    ang_inds = [i for i, v in enumerate(Vs) if v in ('P', 'R', 'p')]
+
+    # make sure the user supplies enough angles for the requested ops
+    if len(angs) != len(ang_inds):
+        raise ValueError('improper V configuration {}:\
+                need one angle for every P, R, and p'.format(V))
+
+    # initialize a counter to track which angle-needing op we are currently
+    # constructing in the for loop
+    ang_id = 0
+    # initialize the 2x2 unitary as the identity (becomes the final result)
+    Vmat = np.eye(2, dtype=complex)
+    # for each requested op, do...
+    for v in Vs:
+        # if a phase gate is requested make it with the current angle and update
+        # the result
+        if v == 'P':
+            # get the ang_idth angle of the list angs
+            ang = angs[ang_id]
+            # convert string angle in degrees to float angle in radians
+            ang_in_rad = string_deg2float_rad(ang)
+            # get a phase gate with the current angle
+            Pmat = make_Pmat(ang_in_rad)
+            # update the result by RIGHT multiplying by the current phase gate
+            Vmat  = Vmat.dot(Pmat)
+            # increment the angle counter
+            ang_id += 1
+
+        # if orthogonal gate is requested make it with the current angle
+        elif v == 'R':
+            # make orthoganal matrix with the current angle
+            ang = angs[ang_id]
+            ang_in_rad = string_deg2float_rad(ang)
+            Rmat = make_Rmat(ang_in_rad)
+            # update result and angle counter
+            Vmat = Vmat.dot(Rmat)
+            ang_id += 1
+
+        # if a global phase is requested, make it
+        elif v == 'p':
+            ang = angs[ang_id]
+            ang_in_rad = string_deg2float_rad(ang)
+            global_phase = make_global_phase(ang_in_rad)
+            Vmat = global_phase * Vmat
+            ang_id += 1
+
+        # if the requested op does NOT take angle parameter...
+        else:
+            # try to pull it from the global ops dictionary
+            try:
+                Vmat = Vmat.dot(ops[v])
+            # if that fails, raise an error
+            except:
+                raise ValueError('string op {} not understood'.format(v))
+    # return the final result
+    return Vmat
+
+
+
+# make a phase gate
+def make_Pmat(ang_in_rad):
+    return np.array([ [1.0,  0.0 ], 
+                      [0.0 , exp(1.0j*ang_in_rad)] ],
+                      dtype=complex)
+
+# make an orthogonal matrix
+def make_Rmat(ang_in_rad):
+    return np.array([ [cos(ang_in_rad/2),  -sin(ang_in_rad/2) ],
+                      [sin(ang_in_rad/2) , cos(ang_in_rad/2)] ],
+                      dtype=complex)
+
+# make a global phase
+def make_global_phase(ang_in_rad):
+    return  exp(1.0j*ang_in_rad)
+
+# convert a string of an angle in degrees to a float in radians
+def string_deg2float_rad(string_deg):
+    float_rad = eval(string_deg)*pi/180.0
+    return float_rad
 
 # Hermitian conjugate
 # -------------------
 def dagger(rho):
     return np.transpose(np.conj(rho))
 
+
+# check if a matrix U is unitary
+# ------------------------------
+def isU(U):
+    m,n = U.shape
+    Ud = np.conjugate(np.transpose(U))
+    UdU = np.dot(Ud, U)
+    UUd = np.dot(U, Ud)
+    I = np.eye(n, dtype=complex)
+    if np.allclose(UdU, I):
+        if np.allclose(UUd, I):
+            return True
+    else:
+        return False
+
+# check density matrix is Hermitian
+# ---------------------------------
+def isherm(rho):
+    if np.allclose(rho, dagger(rho)):
+        return True
+    else:
+        return False
+
+def issymm(mat):
+    matT = mat.T
+    if np.allclose(mat, matT):
+        return True
+    else:
+        return False
 
 # check density matrix has trace one
 # ----------------------------------
@@ -136,16 +272,6 @@ def istrace_one(rho):
     else:
         return False
 
-
-# check density matrix is Hermitian
-# ---------------------------------
-def isherm(rho):
-    if rho == mx.dagger(rho):
-        return True
-    else:
-        return False
-
-
 # check density matrix is positive
 # --------------------------------
 def ispos(rho):
@@ -154,7 +280,6 @@ def ispos(rho):
         return True
     else:
         return False
-
 
 # Kroeneker product list of matrices
 # ----------------------------------
@@ -230,7 +355,7 @@ if __name__ == '__main__':
     IC = 'f0-3-4_t90-p90'
 
     js = [0,2,3]
-    op = listkron( [ss.ops['X']]*(len(js)-1) + [ss.ops['H']] ) 
+    op = listkron( [ops['X']]*(len(js)-1) + [ops['H']] ) 
 
     print()
     print('op = XXH,', 'js = ', str(js)+', ', 'IC = ', IC)
@@ -238,16 +363,16 @@ if __name__ == '__main__':
 
     init_state3 = ss.make_state(L, IC)
     init_rj = [rdms(init_state3, [j]) for j in range(L)]
-    init_Z_exp = [np.trace(r.dot(ss.ops['Z']).real) for r in init_rj]
-    init_Y_exp = [np.trace(r.dot(ss.ops['Y']).real) for r in init_rj]
+    init_Z_exp = [np.trace(r.dot(ops['Z']).real) for r in init_rj]
+    init_Y_exp = [np.trace(r.dot(ops['Y']).real) for r in init_rj]
     print('initial Z exp vals:', init_Z_exp)
     print('initial Y exp vals:', init_Y_exp)
 
     final_state = op_on_state(op, js, init_state3)
 
     final_rj = [rdms(final_state, [j]) for j in range(L)]
-    final_Z_exp = [np.trace(r.dot(ss.ops['Z'])).real for r in final_rj]
-    final_Y_exp = [np.trace(r.dot(ss.ops['Y'])).real for r in final_rj]
+    final_Z_exp = [np.trace(r.dot(ops['Z'])).real for r in final_rj]
+    final_Y_exp = [np.trace(r.dot(ops['Y'])).real for r in final_rj]
     print('final Z exp vals:', final_Z_exp)
     print('final Y exp vals:', final_Y_exp)
 

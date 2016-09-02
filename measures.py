@@ -28,7 +28,6 @@ def vn_entropy(rho, tol=1e-14, get_snum=False):
     else:
         return s
 
-
 # expectation value of operator A w.r.t state
 # -------------------------------------------
 def exp_val(state, A):
@@ -41,6 +40,42 @@ def exp_val(state, A):
     else:
         raise ValueError('Input state not understood')
     return exp_val
+
+# Thanks to David Vargas for the next three network measures
+
+def network_density(mat):
+    #calculates density, also termed connectance in some
+    #literature. defined on page 134 of mark newman's book
+    #on networks.
+    l=len(mat)
+    lsq=l*(l-1)
+    return sum(sum(mat))/lsq
+
+def network_clustering(mat):
+    #calculates the clustering coefficient
+    #as it is defined in equation 7.39 of
+    #mark newman's book on networks. page 199.
+    l=len(mat)
+    matsq=np.linalg.matrix_power(mat, 2)
+    matcube=np.linalg.matrix_power(mat, 3)
+    #zero out diagonal entries. so we do not count edges as
+    #connected triples.
+    for i in range(len(matsq)):
+        matsq[i][i]=0
+    denominator=sum(sum(matsq))
+    numerator=np.trace(matcube)
+    #if there are no closed paths of length
+    #three the clustering is automatically
+    #set to zero.
+    if numerator==0.:
+        return 0.
+    else:
+        return numerator/denominator
+
+def network_disparity(mat, eps=1j*1e-17):
+    numerator=np.sum(mat**2,axis=1)
+    denominator=np.sum(mat, axis=1)**2
+    return (1/len(mat) * sum(numerator/(denominator + eps))).real
 
 
 # get list of local density matrices
@@ -58,7 +93,8 @@ def get_twosite_rhos(state):
         range(j)])
     return twosite_rhos
 
-
+# use two indicies to select rho from the list produces by get_twosite_rhos
+# -------------------------------------------------------------------------
 def select_twosite(twosite_rhos, j, k):
     if j == k:
         raise ValueError('[{}, {}] not valid two site indicies (cannot be the\
@@ -68,6 +104,8 @@ def select_twosite(twosite_rhos, j, k):
     ind = sum(range(row)) + col
     return twosite_rhos[ind]
 
+# form a symmetric matrix from a vector of the triangular elements
+# ----------------------------------------------------------------
 def symm_mat_from_vec(vec):
     N = len(vec)
     L = int((1 + sqrt(1 + 8*N))/2)
@@ -98,7 +136,6 @@ def get_bipartition_rhos(state):
         right_rdm = mx.traceout_first(right_rdm)
         right_rdms[-1] = right_rdm
     return left_rdms + right_rdms
-
 
 # get list of local expectation values
 # ------------------------------------
@@ -134,6 +171,8 @@ def local_entropies_from_rhos(rhos):
     s = np.asarray([vn_entropy(rho) for rho in rhos])
     return s
 
+# von Neumann entropies of bipartitions
+# -------------------------------------
 def get_twosite_entropies(state):
     twosite_rhos = get_twosite_rhos(state)
     twosite_s_mat = local2
