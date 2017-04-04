@@ -221,7 +221,7 @@ def MI_from_entropies(s, s2, eps=1e-14):
                 MI[j,k] = eps
     return MI
 
-# g2_{j,k}(A,B) = <AB> - <A><B> correlator
+# g2_{j,k}(A,B) = <AB>jk - <A>j<B>k correlator
 # ----------------------------------------
 def get_g2(state, A, B):
     exp2 = get_exp2_vals(state, A, B)

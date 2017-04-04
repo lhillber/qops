@@ -21,10 +21,8 @@
 #
 #                                 python3 qca.py
 #
-# This will create a file called test.pdf which plots a space time grid of
-# expectation values of the Pauli-z operator with respect to each qubit at each
-# time step of the qca evolution. The default parameters can be set in the
-# globally defined dictionary called defaults below.
+# The default parameters can be set in the globally defined dictionary called
+# defaults below.
 #
 # To run the file with lists of parameters supplied from the command line, use
 #
@@ -33,7 +31,7 @@
 # where each "<PARAMs>" represents a space separated list of PARAM supplied in
 # quotes. For example, the following will recreate the default behivor
 #
-# python3 qca.py "15" "60" "H" "1" "1 6 9 14" "2" "c1_f0" "1-00" "MI g2-ZZ g2-XX g2-YY scenter" "default" "power"
+# python3 qca.py "15" "60" "H" "1" "1 6 9 14" "2" "c1_f0" "1-00" "g2-XX g2-YY g2-ZZ D C Y scenter" "default" "power"
 #
 # To run independent simulations in parallel, execute
 #
@@ -41,7 +39,8 @@
 #
 # where <nprocs> is the number of parallel processes to be used (between 4 and 8
 # is a reasonable number for most modern laptops). You can still supply
-# command line arguments detailing a list of simulations to be executed as described above.
+# command line arguments detailing a list of simulations to be executed as described
+# above.
 #
 #
 # Simulation Parameters:
@@ -59,7 +58,7 @@
 # -------------------
 # 9)  tasks     : str, measures to be applied to each simulation
 # 10) dir_name  : str, name of directory to which all results will be linked
-# 11) threas_as : str, method for combining lists of simulation parameters
+# 11) thread_as : str, method for combining lists of simulation parameters
 #
 # More info:
 # ----------
@@ -108,7 +107,8 @@
 # 9)  tasks may be requested as high-level calculations and dependencies are
 #     automatically handled. For example if 'g2-XY' is a requested task, then
 #     first single-site and two-site reduced density matrices are 
-#     automatically calculated as well as the expectation values <X>, <Y>, <XY>.
+#     automatically calculated as well as the expectation values <X>, <Y>, <XY>
+#     and returns <XY> - <X><Y>.
 #     All intermediate calculations are also saved. Under the hood, tasks are
 #     separated into 'time_tasks' and 'meas_tasks'. The time_tasks are those
 #     which must be computed from the full state vector, e.g., single and
@@ -281,7 +281,7 @@ from cmath import exp, sin, cos
 from itertools import cycle, zip_longest
 
 # plotting defaults
-mpl.rcParams['text.usetex'] = True
+#mpl.rcParams['text.usetex'] = True
 mpl.rcParams['text.latex.preamble'] = [r'\usepackage{amsmath}']
 font = {'size':12, 'weight' : 'normal'}
 mpl.rcParams['mathtext.fontset'] = 'stix'
@@ -569,7 +569,7 @@ def get_V(V, s):
 
 # single QCA iteration (one time step)
 def iterate(state, U, lUs, rUs, mode_list, L, r, BC_type):
-    # if box boundar conditioins ore requested
+    # if box boundar conditioins are requested
     if BC_type == '1':
         # Loop through all sites in the order given by mode_list
         for j in mode_list:
@@ -650,7 +650,7 @@ def validate_params(params):
             raise ValueError('BC configuration {} is not valid'.format(BC_conf))
     else:
         raise ValueError('BC type {} is not understood'.format(BC[0]))
-    return L, T,V, r, S, M, IC, BC_type, BC_conf
+    return L, T, V, r, S, M, IC, BC_type, BC_conf
 
 # summary of simulation ('\n' prints a new line)
 def print_string(params, rank, tasks_added, t_elapsed):
@@ -791,7 +791,7 @@ def dir_params(typ, sub_dir):
             }
 
 # unique name of simulation parameters
-def make_name(L,T, V, r, S, M, IC, BC):
+def make_name(L, T, V, r, S, M, IC, BC):
     name = 'L{}_T{}_V{}_r{}_S{}_M{}_IC{}_BC{}'.format(L, T, V, r, S, M, IC, BC)
     return name
 
@@ -1182,20 +1182,29 @@ def unique(seq):
 # plotting (currently developing)
 # ========
 
+def plot_name(fignum, params):
+    name = params['name']
+    fig = plt.figure(fignum)
+    ax = fig.add_subplot(1,1,1)
+    ax.text(0.05, 0.5, name)
+    ax.axis([0,1,0,1])
+    ax.axis('off')
+
 def plot(params, h5file, plot_fname):
     tasks = [k for k in h5file.keys()]
     L, T = params['L'], params['T']
     exp_tasks = [task for task in tasks if task.split('-')[0] == 'exp']
     s_tasks = [task for task in tasks if task in ('s', 'sbond')]
     nm_tasks = [task for task in tasks if task in ('D', 'C', 'Y')]
+    plot_name(1, params)
     if len(exp_tasks) > 0:
-        plot_vecs(1, exp_tasks, h5file)
+        plot_vecs(2, exp_tasks, h5file)
     if len(s_tasks) > 0:
-        plot_vecs(2, s_tasks, h5file, zspan=[0, 1])
+        plot_vecs(3, s_tasks, h5file, zspan=[0, 1])
     if 'scenter' in h5file.keys():
-        plot_scenter(3, h5file)
+        plot_scenter(4, h5file)
     if len(nm_tasks) > 0:
-        plot_network_measures(4, nm_tasks, h5file)
+        plot_network_measures(5, nm_tasks, h5file)
     multipage(plot_fname)
 
 def plot_scenter(fignum, h5file):
@@ -1221,12 +1230,13 @@ def plot_vecs(fignum, vec_tasks, h5file, xspan=None, yspan=None, zspan=None):
 def plot_vec(ax, vec, title, xlabel, ylabel, zlabel, xspan, yspan, zspan):
     cax = ax.imshow(vec[yspan[0]:yspan[1], xspan[0]:xspan[1]],
             interpolation='None',
-            origin='lower',
-            vmin=zspan[0], vmax=zspan[1])
+            origin='lower')
     ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    cbar = plt.colorbar(cax, ticks=[zspan[0], sum(zspan)/2, zspan[1]],
+    ticks = [zspan[0], sum(zspan)/2, zspan[1]]
+    ticks=None
+    cbar = plt.colorbar(cax, ticks=ticks,
             shrink=0.75, pad=0.08)
     cbar.ax.set_title(zlabel, y=1.01)
     return ax

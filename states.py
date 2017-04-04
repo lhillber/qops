@@ -6,12 +6,12 @@
 # or a list of tuples. The List of tuples is for global superpositions: each
 # tuple contains a coefficient and a state specification string.
 #
-# A state specification string (spec. string in the table below) starts with a
-# single letter corresponding to a function in this file (it's a key in the
-# dictionary called smap).  Lowercase keys are for separable states while
-# capital keys are for entangled states. Everything after that first letter is a
-# configuration. Underscores separate different config sections and dashes
-# separate params within a config section:
+# A state specification string (called spec string in the table below) starts
+# with a single letter corresponding to a function in this file (it's a key in
+# the dictionary called smap).  Lowercase keys are for separable states
+# while capital keys are for entangled states. Everything after that first
+# letter is a configuration. Underscores separate different config sections and
+# dashes separate params within a config section:
 #
 #   function  | key |             config               | spec. string example
 # ------------+-----+----------------------------------+------------------------
@@ -35,17 +35,17 @@
 #      W      |  W  |                NA                | 'W'
 # ------------+-----+----------------------------------+------------------------
 #             |     |                                  | 'c1_f0'
-#   center    |  c  |    _  <Lc>_<spec. string>        | 'c4_W'
+#   center    |  c  |       <Lc>_<spec string>         | 'c4_W'
 #             |     |                                  | 'c2_r5'
 #
 # superposition:
 # --------------
 #
-# Superpose the states of any number of spec. strings using a list of tuples.
+# Superpose the states of any number of spec strings using a list of tuples.
 # Each tuple has two elements, the first is a coefficient and the second is the
-# spec. string, e.g.
+# spec string, e.g.
 #
-#            [(coeff_0, spec. string_0), ..., coeff_N, spec. string_N)].
+#            [(coeff_0, spec string_0), ..., (coeff_N, spec string_N)].
 #
 # For example, the follwoing is equivalent to 'B0-1_2'
 #
@@ -64,7 +64,8 @@
 #       + section 3, t<th>-p<ph>: theta and phi in deg on Bloch sphere describing
 #                                background qubits (default t0_p0 if not given)
 #
-#   + spin_wave: st/T<th>-p/P<m> fock states with twists in theta and/or phi across the lattice
+#   + spin_wave: st/T<th>-p/P<m> fock states with twists in theta and/or phi
+#     across the lattice
 #       + section 1, t<th> (p<ph>) holds theta (phi) constant at th (ph)
 #                    T<n> (P<m>) winds theta (phi) n (m) times
 #
@@ -85,9 +86,9 @@
 #                       b=2 : 1/sqrt 2 (|01>+|10>)
 #                       b=3 : 1/sqrt 2 (|01>-|10>)
 #
-#   + center: c<Lc>-<spec. string> embed any IC into the center of the lattice
-#       + section 1 <Lc>, the length of the central region. <IC> some other
-#         IC spec
+#   + center: c<Lc>-<spec string> embed any IC into the center of the lattice
+#       + section 1 <Lc>, the length of the central region. <IC> some IC spec
+#       other than 'c'
 #
 #
 # By Logan Hillberry
@@ -110,6 +111,14 @@ bvecs = {
         'es' : np.array([1./sqrt(2), 1./sqrt(2)], dtype=complex)
         }
 
+
+# replace small elements (duplicated from matrix.py)
+# --------------------------------------------------
+def edit_small_vals(mat, tol=1e-14, replacement=0.0):
+    if not type(mat) is np.ndarray:
+        mat = np.asarray(mat)
+    mat[mat<=tol] = replacement
+    return mat
 
 
 # State Creation
@@ -249,7 +258,10 @@ def rand_state(L, config):
 # random throw in Hilbert space
 # -----------------------------
 def random_throw(L, config):
-    np.random.seed(int(config))
+
+    np.random.seed(None)
+    if len(config)>0:
+        np.random.seed(int(config))
     state = np.random.rand(2**L, 2) - 0.5
     state = state.view(dtype=np.complex128)[...,0]
     state = state/np.sqrt(np.conj(state).dot(state))
@@ -307,20 +319,31 @@ def make_state (L, IC):
             name = s[1][0]
             config = s[1][1:]
             state += coeff * smap[name](L, config)
-    return state
+    return edit_small_vals(state.real) + 1j * edit_small_vals(state.imag)
 
 
 if __name__ == '__main__':
-    import simulation.measures as ms
-    import simulation.states as ss
-    import simulation.time_evolve as te
-    import matplotlib.pyplot as plt
+    import measures as ms
+    from matrix import ops
+
     L = 8
     ICs = ['f0-3_t90-p0_t45-p180', 'f2_t90-p90', 'f0-2-4-6', 'st90-P1', 'sT2-p30',
         'sT2-P1', 'r75_t45-p90', 'r5-234_t45-p90', 'R234', 'B0-1_3', 'G', 'W', 'c1_f0',
         'c4_W', 'c2_r5', [(1/sqrt(2), 'f0'), (1/sqrt(2), 'f1')]]
 
+    print("Testing: create all example states for a system of "+str(L)+" sites and measure the expectation value of spin in the X, Y, and Z directions at each site, the von Neumann entropy of each site, and the von Neumann entropy of all bipartitions of the sites.\n")
     for IC_id, IC in enumerate(ICs):
-        state = make_state(L,IC)
-    print('pass!')
+        print(str(IC_id + 1)+')', IC)
+        state = make_state(L, IC)
+        xs = ms.get_local_exp_vals(state, ops['X'])
+        ys = ms.get_local_exp_vals(state, ops['Y'])
+        zs = ms.get_local_exp_vals(state, ops['Z'])
+        ss = ms.get_local_entropies(state)
+        sb = ms.get_bipartition_entropies(state)
+        #print(state, "\n")
+        print("<X>: ", xs)
+        print("<Y>: ", ys)
+        print("<Z>: ", zs)
+        print("S_vN: ", ss)
+        print("S_b: ", sb, "\n")
 
