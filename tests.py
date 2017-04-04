@@ -26,9 +26,9 @@ if __name__ == '__main__':
     for state in [R, W, B0, B1, B2, B3, GHZ, twist]:
         s  = ms.get_local_entropies(state)
         sc = ms.get_bipartition_entropies(state)
-        x  = ms.get_local_exp_vals(state, ss.ops['X'])
-        y  = ms.get_local_exp_vals(state, ss.ops['Y'])
-        z  = ms.get_local_exp_vals(state, ss.ops['Z'])
+        x  = ms.get_local_exp_vals(state, mx.ops['X'])
+        y  = ms.get_local_exp_vals(state, mx.ops['Y'])
+        z  = ms.get_local_exp_vals(state, mx.ops['Z'])
         print('==================================================')
         print(s)
         print(sc)
