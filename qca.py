@@ -31,7 +31,8 @@
 # where each "<PARAMs>" represents a space separated list of PARAM supplied in
 # quotes. For example, the following will recreate the default behivor
 #
-# python3 qca.py "15" "60" "H" "1" "1 6 9 14" "2" "c1_f0" "1-00" "g2-XX g2-YY g2-ZZ D C Y scenter" "default" "power"
+# python3 qca.py "15" "60" "H" "1" "1 6 9 14" "2" "c1_f0" "1-00";
+# "g2-XX g2-YY g2-ZZ FT-D FT-C FT-Y scenter" "default" "power"
 #
 # To run independent simulations in parallel, execute
 #
@@ -308,7 +309,7 @@ defaults = {
         }
 
 # The main loop, executes all simulations using requested number of processes
-def main():
+def main(master='master'):
     # initialize parallel communication. rank is the name for each parallel
     # process from 0 to nprocs - 1
     comm = MPI.COMM_WORLD
@@ -329,9 +330,9 @@ def main():
             t0 = time.time()
             # file names. All simulations are saved under the sub dir 'master'
             name = make_name(**params)
-            master_data_path  = make_path(**dir_params('data', 'master'))
+            master_data_path  = make_path(**dir_params('data', master))
             master_data_fname = os.path.join(master_data_path, name) + '.hdf5'
-            master_plot_path  = make_path(**dir_params('plots', 'master'))
+            master_plot_path  = make_path(**dir_params('plots', master))
             master_plot_fname = os.path.join(master_plot_path, name) + '.pdf'
             # sym link names. Simulation results are soft linked to the
             # user-requested sub_dir
@@ -375,21 +376,33 @@ def run_required(params, tasks, h5file, rewrite_meas=False, rewrite_time=False):
     time_tasks = [task for task in tasks if task in implemented_time_tasks]
     meas_tasks = [task for task in tasks if task.split('-')[0] in
         implemented_meas_tasks]
-    needed_time_tasks, needed_meas_tasks = check_deps(tasks, h5file)
+    required_time_tasks, required_meas_tasks = check_deps(tasks, h5file)
+
+    # remove any required taskes that are already available
+    avail_time_tasks, avail_meas_tasks = get_avail_tasks(h5file)
+    needed_time_tasks = [task for task in required_time_tasks if not task in
+            avail_time_tasks]
+    needed_meas_tasks = [task for task in required_meas_tasks if not task in
+            avail_meas_tasks]
+
     # run the necessary time tasks
+    tasks_added = []
     if rewrite_time:
-        time_evolve(params, time_tasks, h5file)
+        time_evolve(params, required_time_tasks, h5file)
+        tasks_added += required_time_tasks
     elif len(needed_time_tasks) > 0:
+        tasks_added += needed_time_tasks
         time_evolve(params, needed_time_tasks, h5file)
 
     # run the necessary measurement tasks
     if rewrite_meas:
-        measure(params, meas_tasks, h5file)
+        tasks_added += required_meas_tasks
+        measure(params, required_meas_tasks, h5file)
     elif len(needed_meas_tasks) > 0:
+        tasks_added += needed_meas_tasks
         measure(params, needed_meas_tasks, h5file)
 
     # collect the names of all new tasks
-    tasks_added = needed_time_tasks + needed_meas_tasks
     # return the updated hdf5 file and the names of all new tasks
     return h5file, tasks_added
 
@@ -1218,13 +1231,7 @@ def check_deps(tasks, h5file):
     required_time_tasks, required_meas_tasks = recurs_check_deps(
             time_tasks, meas_tasks,
             avail_time_tasks, avail_meas_tasks)
-
-    # remove any required taskes that are already available
-    needed_time_tasks = [task for task in required_time_tasks if not task in
-            avail_time_tasks]
-    needed_meas_tasks = [task for task in required_meas_tasks if not task in
-            avail_meas_tasks]
-    return needed_time_tasks, needed_meas_tasks
+    return required_time_tasks, required_meas_tasks
 
 # recursivly check dependencies
 def recurs_check_deps(time_tasks, meas_tasks, avail_time_tasks, avail_meas_tasks,
@@ -1232,30 +1239,27 @@ def recurs_check_deps(time_tasks, meas_tasks, avail_time_tasks, avail_meas_tasks
         required_meas_tasks=[]):
     for meas_task in meas_tasks:
         meas_task_slim = meas_task.split('-')[0]
-        meas_deps = ['']
         requested_meas_tasks=[]
         deps = task_map[meas_task_slim]['deps'](meas_task)
         for dep in deps:
             dep_slim = dep.split('-')[0]
             if dep_slim in implemented_time_tasks:
                 if not dep in requested_time_tasks:
-                    if not dep in avail_time_tasks:
-                        requested_time_tasks += [dep]
+                    requested_time_tasks += [dep]
             elif dep_slim in implemented_meas_tasks:
                 if not dep in requested_meas_tasks:
-                    if not dep in avail_meas_tasks:
-                        requested_meas_tasks += [dep]
-                        required_time_tasks, required_meas_tasks =\
-                                recurs_check_deps([], [dep],
-                                avail_time_tasks, avail_meas_tasks,
-                                requested_meas_tasks=requested_meas_tasks,
-                                required_meas_tasks=required_meas_tasks)
+                    requested_meas_tasks += [dep]
+                    required_time_tasks, required_meas_tasks =\
+                            recurs_check_deps([], [dep],
+                            avail_time_tasks, avail_meas_tasks,
+                            requested_meas_tasks=requested_meas_tasks,
+                            required_meas_tasks=required_meas_tasks)
             else:
                 raise ValueError('requested task {} is not implemented'.format(dep))
         required_meas_tasks += requested_meas_tasks[::-1] + [meas_task]
     required_time_tasks = time_tasks + requested_time_tasks
     #required_meas_tasks = meas_tasks + requested_meas_tasks
-    return required_time_tasks, unique(required_meas_tasks)
+    return unique(required_time_tasks), unique(required_meas_tasks)
 
 
 # get a list of existing time and meas tasks from an hdf5 file
