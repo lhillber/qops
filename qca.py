@@ -106,25 +106,25 @@
 #
 # 9)  tasks may be requested as high-level calculations and dependencies are
 #     automatically handled. For example if 'g2-XY' is a requested task, then
-#     first single-site and two-site reduced density matrices are 
+#     first single-site and two-site reduced density matrices are
 #     automatically calculated as well as the expectation values <X>, <Y>, <XY>
 #     and returns <XY> - <X><Y>.
 #     All intermediate calculations are also saved. Under the hood, tasks are
 #     separated into 'time_tasks' and 'meas_tasks'. The time_tasks are those
 #     which must be computed from the full state vector, e.g., single and
 #     two-site reduced density matrices. The meas_tasks are those that can be
-#     computed from time tasks or other existing meas_tasks. Note that bond entropy
-#     'sbond' and center bond entropy 'scenter' are considered to be time tasks
-#     so that we don't have to save bi-partition reduced density matrices to
-#     disk (as these can easily become very large). See the globally defined
-#     dictionary task_map for a list of implemented tasks and their associated
-#     methods.
+#     computed from time tasks or other existing meas_tasks. Note that bond
+#     entropy 'sbond' and center bond entropy 'scenter' are considered to be
+#     time tasks so that we don't have to save bi-partition reduced density
+#     matrices to disk (as these can easily become very large). See the globally
+#     defined dictionary task_map for a list of implemented tasks and their
+#     associated methods.
 #
 # 10) dir_name is the name of a directory to be created and filled with the
-#     requested simulations. The actual data is always saved with 
+#     requested simulations. The actual data is always saved with
 #     dir_name = 'master' and the requested simulations are soft linked to the
 #     directory with dir_name as supplied. This way, if the user requests a
-#     simulation in a new dir_name, but has already run the same simulation 
+#     simulation in a new dir_name, but has already run the same simulation
 #     before, it won't rerun the simulation.
 #
 # 11) thread_as tells the program how to handle input list of params that are
@@ -219,8 +219,8 @@ N4 = 32786
 #     return ['MI']
 #
 #
-# 4) Write or choose an appropriate init_function for your measure (is it a scalar at
-# each time step? a vector of lenght L?)
+# 4) Write or choose an appropriate init_function for your measure (is it a
+# scalar at each time step? a vector of lenght L?)
 #
 # def init_scalar(L, T):
 #    return np.zeros(T+1)
@@ -292,17 +292,18 @@ mpl.rc('font',**font)
 # --------------------------------------------------------------------------
 defaults = {
         # simulation parameter lists
-        'Ls' : [15],
+        'Ls' : [3],
         'Ts' : [60],
         'Vs' : ['H'],
         'rs' : [1],
-        'Ss' : [1, 6, 9, 14],
+        'Ss' : [0],
         'Ms' : [2],
-        'ICs': ['c1_f0'],
+        'ICs': ['d'],
         'BCs': ['1-00'],
         # control parameters
-        'tasks'     : ['g2-XX', 'g2-YY', 'g2-ZZ', 'D', 'C', 'Y', 'scenter'],
-        'sub_dir'   : 'default',
+        'tasks'     : ['g2-xx', 'g2-yy', 'g2-zz', 'FT-D', 'FT-Y', 'FT-C',
+            'scenter', 'sbond' ],
+        'sub_dir'   : 'doublon',
         'thread_as' : 'power'
         }
 
@@ -369,15 +370,24 @@ def main():
 
 # top level simulation call. Simulation described by params is updated with
 # tasks and saved to the open hdf5 file called `h5file`
-def run_required(params, tasks, h5file):
+def run_required(params, tasks, h5file, rewrite_meas=False, rewrite_time=False):
     # check for dependencies of user-requested tasks
+    time_tasks = [task for task in tasks if task in implemented_time_tasks]
+    meas_tasks = [task for task in tasks if task.split('-')[0] in
+        implemented_meas_tasks]
     needed_time_tasks, needed_meas_tasks = check_deps(tasks, h5file)
     # run the necessary time tasks
-    if len(needed_time_tasks) > 0:
+    if rewrite_time:
+        time_evolve(params, time_tasks, h5file)
+    elif len(needed_time_tasks) > 0:
         time_evolve(params, needed_time_tasks, h5file)
+
     # run the necessary measurement tasks
-    if len(needed_meas_tasks) > 0:
+    if rewrite_meas:
+        measure(params, meas_tasks, h5file)
+    elif len(needed_meas_tasks) > 0:
         measure(params, needed_meas_tasks, h5file)
+
     # collect the names of all new tasks
     tasks_added = needed_time_tasks + needed_meas_tasks
     # return the updated hdf5 file and the names of all new tasks
@@ -443,7 +453,6 @@ def measure(params, meas_tasks, h5file):
         # its of type 'exp' and I dont need to know the 'Z' until we go to calculate
         # expectation values. This minimizes repeated code in the task_map.
         task_slim = task.split('-')[0]
-
         # same comments as in time tasks above
         task_map[task_slim]['set'](h5file, res, task)
     added_meas_tasks = res.pop('tasks_tmp')
@@ -485,8 +494,8 @@ def get_mode(mode_name, L):
         try:
             m = int(mode_name)
         except:
-            raise ValueError('mode is not swp (d=1), alt (d=2), blk (d=3), or convertible\
-            to an integer step size.')
+            raise ValueError('mode is not swp (d=1), alt (d=2), blk (d=3), or\
+            convertible to an integer step size.')
     return make_mode_list(m, L)
 
 # create spatial update ordering with skip size d for lattice length L
@@ -837,7 +846,10 @@ def save_dict_hdf5(dic, h5file):
 def recurs_save_dict_hdf5(h5file, path, dic_):
     for key, item in dic_.items():
         if isinstance(item, (np.ndarray, np.int64, np.float64, str, bytes)):
-            h5file[path + key] = item
+            if path+key in h5file.keys():
+                h5file[path + key][::] = item
+            else:
+                h5file[path + key] = item
         elif isinstance(item, dict):
             recurs_save_dict_hdf5(h5file, path + key + '/', item)
         else:
@@ -868,6 +880,17 @@ def dep_g2(task):
     deps = ['exp2-'+ops, 'exp-'+ops[0], 'exp-'+ops[1]]
     return deps
 #
+def dep_FT(task):
+    _, meas = task.split('-')
+    if meas in ('D', 'C', 'Y'):
+        deps = [meas]
+    elif meas in ('x', 'y', 'z'):
+        deps = ['exp-' + meas]
+    else:
+        raise ValueError('unknown Fourier transform method for measure \
+            {}'.format())
+    return deps
+#
 def dep_MI(task):
     return ['MI']
 #
@@ -892,6 +915,12 @@ def init_sbond(L, T):
 #
 def init_scalar(L, T):
     return np.zeros(T+1)
+#
+def init_FT(L, T):
+    offset = 0
+    if T > 300:
+        offset = 300
+    return np.zeros(((T - offset + 1) // 2 + 1, 3))
 #
 def init_vec(L, T):
     return np.zeros((T+1,L))
@@ -924,7 +953,17 @@ def set_exp(h5file, res, task):
     deps = task_map['exp']['deps'](task)
     rhoss, = gather_deps(h5file, res, deps)
     for t, rhos in enumerate(rhoss):
-        exp[t, ::] = ms.local_exp_vals_from_rhos(rhos, mx.ops[op])
+        exp[t, ::] = ms.local_exp_vals_from_rhos(rhos, mx.ops[op.upper()])
+
+def set_FT(h5file, res, task):
+    FT = res[task]
+    _, meas = task.split('-')
+    deps = task_map['FT']['deps'](task)
+    sig, = gather_deps(h5file, res, deps)
+    # NOTE: Can't FT <Y> because name is degenerate with disparity
+    if meas in ('x', 'y', 'z'):
+        sig = np.mean(sig, axis = 1)
+    FT[::,::] = ms.fourier(sig).T
 
 def set_exp2(h5file, res, task):
     exp2 = res[task]
@@ -933,7 +972,7 @@ def set_exp2(h5file, res, task):
     rhoss, = gather_deps(h5file, res, deps)
     for t, rhos in enumerate(rhoss):
         exp2[t, ::, ::] = ms.exp2_vals_from_rhos(
-                rhos, mx.ops[ops[0]], mx.ops[ops[1]])
+                rhos, mx.ops[ops[0].upper()], mx.ops[ops[1].upper()])
 
 def set_s(h5file, res, task):
     s = res[task]
@@ -964,18 +1003,18 @@ def set_D(h5file, res, task):
         D[t] = ms.network_density(mat)
 
 def set_C(h5file, res, task):
-    D = res[task]
+    C = res[task]
     deps = task_map['C']['deps'](task)
     MI, = gather_deps(h5file, res, deps)
     for t, mat in enumerate(MI):
-        D[t] = ms.network_clustering(mat)
+        C[t] = ms.network_clustering(mat)
 
 def set_Y(h5file, res, task):
-    D = res[task]
+    Y = res[task]
     deps = task_map['Y']['deps'](task)
     MI, = gather_deps(h5file, res, deps)
     for t, mat in enumerate(MI):
-        D[t] = ms.network_disparity(mat)
+        Y[t] = ms.network_disparity(mat)
 
 def set_g2(h5file, res, task):
     g2 = res[task]
@@ -991,6 +1030,15 @@ def name_exp(task):
     ylabel = 'Iteration'
     return title, xlabel, ylabel
 
+def name_FT(task):
+    typ, meas = task.split('-')
+    title = ''
+    xlabel = 'Frequency'
+    ylabel = r'$\mathcal{F}$(%s)' % meas
+    # TODO: fix slim name degeneracy of disparity Y and expectation <Y>
+    if meas in ('x', 'y', 'z'):
+       ylabel = r'$\mathcal{F}\left(\overline{\langle \sigma^{%s}\rangle}\right)$' % meas.lower()
+    return title, xlabel, ylabel
 
 def name_s(task):
     title = r'$s^{\mathrm{vN}}$'
@@ -1006,7 +1054,9 @@ def name_sbond(task):
 
 # maping task names to their dep, init, and set functions
 implemented_time_tasks = ['one_site', 'two_site', 'sbond', 'scenter']
-implemented_meas_tasks = ['exp', 'exp2', 's', 's2', 'MI', 'g2', 'D', 'C', 'Y']
+implemented_meas_tasks = ['exp', 'exp2', 's', 's2', 'MI', 'g2', 'D', 'C', 'Y',
+    'FT']
+
 task_map = {
     # time tasks have no dependencies
     'one_site' : {
@@ -1079,14 +1129,21 @@ task_map = {
         'init' : init_vec,
         'set'  : set_exp,
         'name' : name_exp
-
             },
 
     'exp2' : {
         'deps' : dep_two_site,
         'init' : init_mat,
         'set'  : set_exp2
-            }
+            },
+
+    'FT'  : {
+        'deps' : dep_FT,
+        'init' : init_FT,
+        'set'  : set_FT,
+        'name' : name_FT
+
+            },
         }
 
 # Init a set of tasks as a dictionary
@@ -1111,31 +1168,31 @@ def gather_deps(h5file, res, deps):
             raise ValueError('Dependency error, \'{}\' not available'.format(dep))
     return out
 
-# make sure all required dependincies get computed if they're not available
 def check_deps(tasks, h5file):
-    avail_time_tasks, avail_meas_tasks = get_avail_tasks(h5file)
     # separate tasks into time and meas
     time_tasks = [task for task in tasks if task in implemented_time_tasks]
     meas_tasks = [task for task in tasks if task.split('-')[0] in implemented_meas_tasks]
+    avail_time_tasks, avail_meas_tasks = get_avail_tasks(h5file)
     # tasks not yet preformed plus their dependencies
     required_time_tasks, required_meas_tasks = recurs_check_deps(
             time_tasks, meas_tasks,
-            avail_time_tasks, avail_meas_tasks,
-            requested_time_tasks=[], requested_meas_tasks=[])
+            avail_time_tasks, avail_meas_tasks)
 
-    # final list of needed taks plus their dependencies
-    needed_time_tasks = [task for task in required_time_tasks if
-            task not in avail_time_tasks]
-    needed_meas_tasks = [task for task in required_meas_tasks if
-            task not in avail_meas_tasks]
-    # reverse meas_tasks so dependencies get calculated first
-    return needed_time_tasks, needed_meas_tasks[::-1]
+    # remove any required taskes that are already available
+    needed_time_tasks = [task for task in required_time_tasks if not task in
+            avail_time_tasks]
+    needed_meas_tasks = [task for task in required_meas_tasks if not task in
+            avail_meas_tasks]
+    return needed_time_tasks, needed_meas_tasks
 
 # recursivly check dependencies
 def recurs_check_deps(time_tasks, meas_tasks, avail_time_tasks, avail_meas_tasks,
-        requested_time_tasks=[], requested_meas_tasks=[]):
+        requested_meas_tasks=[], requested_time_tasks=[],
+        required_meas_tasks=[]):
     for meas_task in meas_tasks:
         meas_task_slim = meas_task.split('-')[0]
+        meas_deps = ['']
+        requested_meas_tasks=[]
         deps = task_map[meas_task_slim]['deps'](meas_task)
         for dep in deps:
             dep_slim = dep.split('-')[0]
@@ -1151,14 +1208,14 @@ def recurs_check_deps(time_tasks, meas_tasks, avail_time_tasks, avail_meas_tasks
                                 recurs_check_deps([], [dep],
                                 avail_time_tasks, avail_meas_tasks,
                                 requested_meas_tasks=requested_meas_tasks,
-                                requested_time_tasks=requested_time_tasks)
+                                required_meas_tasks=required_meas_tasks)
             else:
                 raise ValueError('requested task {} is not implemented'.format(dep))
-    required_time_tasks = unique(
-        time_tasks + requested_time_tasks)
-    required_meas_tasks = unique(
-        meas_tasks + requested_meas_tasks)
-    return required_time_tasks, required_meas_tasks
+        required_meas_tasks += requested_meas_tasks[::-1] + [meas_task]
+    required_time_tasks = time_tasks + requested_time_tasks
+    #required_meas_tasks = meas_tasks + requested_meas_tasks
+    return required_time_tasks, unique(required_meas_tasks)
+
 
 # get a list of existing time and meas tasks from an hdf5 file
 def get_avail_tasks(h5file):
@@ -1196,6 +1253,8 @@ def plot(params, h5file, plot_fname):
     exp_tasks = [task for task in tasks if task.split('-')[0] == 'exp']
     s_tasks = [task for task in tasks if task in ('s', 'sbond')]
     nm_tasks = [task for task in tasks if task in ('D', 'C', 'Y')]
+    FT_nm_tasks = [task for task in tasks if task in ('FT-D', 'FT-C', 'FT-Y',
+    'FT-x', 'FT-y','FT-z')]
     plot_name(1, params)
     if len(exp_tasks) > 0:
         plot_vecs(2, exp_tasks, h5file)
@@ -1205,6 +1264,9 @@ def plot(params, h5file, plot_fname):
         plot_scenter(4, h5file)
     if len(nm_tasks) > 0:
         plot_network_measures(5, nm_tasks, h5file)
+    if len(FT_nm_tasks) > 0:
+        plot_FT_network_measures(6, T, FT_nm_tasks, h5file)
+    plt.tight_layout()
     multipage(plot_fname)
 
 def plot_scenter(fignum, h5file):
@@ -1241,11 +1303,19 @@ def plot_vec(ax, vec, title, xlabel, ylabel, zlabel, xspan, yspan, zspan):
     cbar.ax.set_title(zlabel, y=1.01)
     return ax
 
-def plot_scalar(ax, scalar, title, xlabel, ylabel, xspan = None, label=''):
+def plot_scalar(ax, scalar, title, xlabel, ylabel,
+        xs=None, xspan=None, ymin=None, label='', logy=False, kwargs={}):
     T = len(scalar)
     if xspan is None: xspan = [0, min(61, T)]
-    ax.plot(np.linspace(xspan[0], xspan[1], int(xspan[1] - xspan[0])),
-            scalar[xspan[0]:xspan[1]], label=label)
+    if xs is None:
+        xs = np.linspace(xspan[0], xspan[1], int(xspan[1] - xspan[0]))
+        scalar = scalar[xspan[0]:xspan[1]]
+    if logy:
+        ax.semilogy(xs[1::], scalar[1::], label=label, **kwargs)
+    else:
+        ax.plot(xs, scalar, label=label, **kwargs)
+    if not ymin is None:
+        ax.set_ylim(bottom=ymin)
     ax.set_title(title)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
@@ -1259,6 +1329,53 @@ def plot_network_measures(fignum, nm_tasks, h5file, xspan=None):
         nm = h5file[task][::]
         name = r'$\mathcal{%s}$' % task
         plot_scalar(ax, nm, '', 'Iteration', name)
+
+def peak_find(XX, YY, YYlima, YYlimb):
+    Y = YY[YY>YYlima]
+    X = XX[YY>YYlima]
+    Ylimb = YYlimb[YY>YYlima]
+    dx = XX[1] - XX[0]
+    I = np.arange(len(X)-1)
+    inds = I[abs(X[:-1] - X[1:]) > dx]
+    Xs = np.split(X, inds)
+    Ys = np.split(Y, inds)
+    Ylimbs = np.split(Ylimb, inds)
+    xpks = []
+    ypks = []
+    for x, y, ylimb in zip(Xs, Ys, Ylimbs):
+        if len(x) > 0:
+            ymx = np.max(y)
+            xmx = x[np.argmax(y)]
+            ylb = ylimb[np.argmax(y)]
+            if ymx > ylb:
+                ypks.append(ymx)
+                xpks.append(xmx)
+    return xpks, ypks
+
+def plot_FT_network_measures(fignum, T, FT_nm_tasks, h5file, xspan=None):
+    fig = plt.figure(fignum)
+    nax = len(FT_nm_tasks)
+    for task_id, task in enumerate(FT_nm_tasks):
+        ax = fig.add_subplot(nax, 1, task_id + 1)
+        fs = h5file[task][::, 0]
+        FT_nm = h5file[task][::, 1]
+        RN_nm = h5file[task][::, 2]
+        chi22_RN_nm = 5.991 * RN_nm
+        fpks, ppks = peak_find(fs, FT_nm, RN_nm, chi22_RN_nm)
+        title, xlabel, ylabel = task_map[task.split('-')[0]]['name'](task)
+        if task_id != nax - 1:
+            xlabel = ''
+            ax.set_xticks([])
+
+        ymin = min([RN_nm[0], RN_nm[-1]])
+        plot_scalar(ax, FT_nm, title, xlabel, ylabel, xs=fs, logy=True,
+            ymin=ymin, kwargs={})
+        plot_scalar(ax, RN_nm, title, xlabel, ylabel, xs=fs, logy=True,
+            ymin=ymin, kwargs={'ls':'--'})
+        plot_scalar(ax, chi22_RN_nm, title, xlabel, ylabel, xs=fs, logy=True,
+            ymin=ymin, kwargs={'ls':':'})
+        ax.scatter(fpks, ppks, c='r', marker='*', linewidth=0,
+                s=35, zorder=3)
 
 # execute default behavior
 # ------------------------

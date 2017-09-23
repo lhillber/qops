@@ -26,6 +26,9 @@
 #  rand_state |  r  | <p>-<s>_t<th>-p<ph>_t<th>-p<ph>  | 'r75_t45-p90'
 #             |     |                                  | 'r5-234_t45-p90'
 # ------------+-----+----------------------------------+------------------------
+#   doublon   |  d  |     t<th>-p<ph>_t<th>-p<ph>      | 'd'  = |1010...>
+#             |     |                                  | 'dt0-p0_t180-p0'
+# ------------+-----+----------------------------------+------------------------
 #  rand_throw |  R  |               <s>                | 'R234'
 # ------------+-----+----------------------------------+------------------------
 #     Bell    |  B  |            <j-k>_<b>             | 'B0-1_3'
@@ -124,7 +127,7 @@ def edit_small_vals(mat, tol=1e-14, replacement=0.0):
 # State Creation
 # ==============
 
-# qubit on the block sphere. th is from vertical and ph is from x around z.
+# qubit on the Bloch sphere. th is from vertical and ph is from x around z.
 # th and ph are expected in degrees
 # -------------------------------------------------------------------------
 def qubit(t, p):
@@ -172,10 +175,14 @@ def fock(L, config):
     state = listkron(qubits)
     return state
 
+def doublon(L, config):
+    fock_config = '-'.join([str(i) for i in range(L) if i%2 == 0])
+    fock_config = ''.join([fock_config, config])
+    return fock(L, fock_config)
 
 # create GHZ state
 # ----------------
-def GHZ (L, congif):
+def GHZ (L, config):
     s1=['1']*(L)
     s2=['0']*(L)
     state = (1.0/sqrt(2.0)) \
@@ -297,6 +304,7 @@ def center(L, config):
 # functions to make the specified state
 # -------------------------------------
 smap = { 'f' : fock,
+         'd' : doublon,
          'c' : center,
          's' : spin_wave,
          'r' : rand_state,
@@ -327,9 +335,10 @@ if __name__ == '__main__':
     from matrix import ops
 
     L = 8
-    ICs = ['f0-3_t90-p0_t45-p180', 'f2_t90-p90', 'f0-2-4-6', 'st90-P1', 'sT2-p30',
-        'sT2-P1', 'r75_t45-p90', 'r5-234_t45-p90', 'R234', 'B0-1_3', 'G', 'W', 'c1_f0',
-        'c4_W', 'c2_r5', [(1/sqrt(2), 'f0'), (1/sqrt(2), 'f1')]]
+    ICs = ['f0-3_t90-p0_t45-p180', 'f2_t90-p90', 'f0-2-4-6', 'st90-P1',
+        'sT2-p30', 'sT2-P1', 'r75_t45-p90', 'r5-234_t45-p90', 'd',
+        'd_t0-p0_t180-p0', 'R234', 'B0-1_3', 'G', 'W', 'c1_f0', 'c4_W', 'c2_r5',
+        [(1/sqrt(2), 'f0'), (1/sqrt(2), 'f1')]]
 
     print("Testing: create all example states for a system of "+str(L)+" sites and measure the expectation value of spin in the X, Y, and Z directions at each site, the von Neumann entropy of each site, and the von Neumann entropy of all bipartitions of the sites.\n")
     for IC_id, IC in enumerate(ICs):

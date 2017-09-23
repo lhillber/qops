@@ -13,7 +13,7 @@ import numpy as np
 import scipy as sp
 import scipy.linalg
 import matrix as mx
-
+from math import pi
 
 # von Neumann entropy of reduced density matrix rho
 # -------------------------------------------------
@@ -244,4 +244,34 @@ def g2_from_exps(exp2, exp1a, exp1b):
             g2[k,j] = g2[j,k]
     return g2
 
+# Autocorrelation function of vector x with lag h
+# -----------------------------------------------
+def autocorr(x, h=1):
+    N = len(x)
+    mu = np.mean(x)
+    acorr = sum( (x[j] - mu) * (x[j+h] - mu) for j in range(N-h))
+    denom = sum( (x[j] - mu)**2 for j in range(N) )
+    if denom > 1e-14:
+        acorr = acorr/denom
+    else:
+        print('auto correlation less than', 1e-1, 1e-144)
+    return acorr
+
+def fourier(sig, dt=1, h=1):
+    if len(sig)>300:
+        sig = np.nan_to_num(sig)[300:]
+    sig =  sig - np.mean(sig)
+    n = sig.size
+    # normalized powerspectrum
+    # (https://docs.scipy.org/doc/numpy/reference/routines.fft.html)
+    ps = np.absolute(np.fft.rfft(sig)/n)**2
+    fs = np.fft.rfftfreq(n, dt)
+    a1 = autocorr(sig, h=1)
+    #a2 = np.abs(autocorr(sig, h=2))
+    #a = 0.5 * (a1 + np.sqrt(a2))
+    a = a1
+    rn = 1 - a**2
+    rn = rn / (1 - 2*a*np.cos(2*pi*fs/dt) + a**2)
+    rn = rn * sum(ps)/sum(rn)
+    return np.asarray([fs, ps[:n//2+1], rn])
 
