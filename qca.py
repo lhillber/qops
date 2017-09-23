@@ -292,17 +292,17 @@ mpl.rc('font',**font)
 # --------------------------------------------------------------------------
 defaults = {
         # simulation parameter lists
-        'Ls' : [3],
+        'Ls' : [10],
         'Ts' : [60],
         'Vs' : ['H'],
         'rs' : [1],
-        'Ss' : [0],
+        'Ss' : [6],
         'Ms' : [2],
         'ICs': ['d'],
         'BCs': ['1-00'],
         # control parameters
         'tasks'     : ['g2-xx', 'g2-yy', 'g2-zz', 'FT-D', 'FT-Y', 'FT-C',
-            'scenter', 'sbond' ],
+            'scenter', 'sbond', 'bipartitions', 'center_partition'],
         'sub_dir'   : 'doublon',
         'thread_as' : 'power'
         }
@@ -852,6 +852,16 @@ def recurs_save_dict_hdf5(h5file, path, dic_):
                 h5file[path + key] = item
         elif isinstance(item, dict):
             recurs_save_dict_hdf5(h5file, path + key + '/', item)
+
+        # special case for bipartition density matricies only
+        elif isinstance(item, list):
+            item_T = [[item[j][i] for j in range(len(item))] for i in
+                range(len(item[0]))]
+            for k, el in enumerate(item_T):
+                if path + key + '/c' + str(k) in h5file.keys():
+                    h5file[path + key + '/c' + str(k)][::] = el
+                else:
+                    h5file[path + key + '/c'+str(k)] = el
         else:
             raise ValueError('Cannot save %s type'%item)
 
@@ -910,6 +920,20 @@ def init_one_site(L, T):
 def init_two_site(L, T):
     return np.zeros((T+1, int(0.5*L*(L-1)), 4, 4), dtype=complex)
 #
+def init_bipartitions(L, T):
+    N = L - 1
+    c = int(N/2)
+    left_dims = [2**(l+1) for l in range(c)]
+    right_dims = left_dims
+    if N % 2 != 0:
+        right_dims = np.append(right_dims, 2**(c+1))
+    dims = np.append(left_dims, right_dims[::-1])
+    init_shape = [[np.zeros((d,d), dtype=complex) for d in dims]]*(T+1)
+    return init_shape
+#
+def init_center_partition(L, T):
+    return np.zeros((T+1, 2**int(L/2), 2**int(L/2)), dtype=complex)
+#
 def init_sbond(L, T):
     return np.zeros((T+1, L-1))
 #
@@ -935,6 +959,12 @@ def set_one_site(state, one_site, t):
 #
 def set_two_site(state, two_site, t):
     two_site[t, ::, ::, ::] = ms.get_twosite_rhos(state)
+#
+def set_bipartitions(state, bipartitions, t):
+    bipartitions[t][::][::][::] = ms.get_bipartition_rhos(state)
+#
+def set_center_partition(state, center_partition, t):
+    center_partition[t, ::, ::] = ms.get_center_rho(state)
 #
 def set_sbond(state, sbond, t):
     L = int(log(len(state), 2))
@@ -1053,7 +1083,8 @@ def name_sbond(task):
     return title, xlabel, ylabel
 
 # maping task names to their dep, init, and set functions
-implemented_time_tasks = ['one_site', 'two_site', 'sbond', 'scenter']
+implemented_time_tasks = ['one_site', 'two_site', 'bipartitions',
+    'center_partition', 'sbond', 'scenter']
 implemented_meas_tasks = ['exp', 'exp2', 's', 's2', 'MI', 'g2', 'D', 'C', 'Y',
     'FT']
 
@@ -1067,6 +1098,16 @@ task_map = {
     'two_site' : {
         'init' : init_two_site,
         'set'  : set_two_site
+            },
+
+    'bipartitions' : {
+        'init' : init_bipartitions,
+        'set'  : set_bipartitions
+            },
+
+    'center_partition' : {
+        'init' : init_center_partition,
+        'set'  : set_center_partition
             },
 
     'sbond'    : {

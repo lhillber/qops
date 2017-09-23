@@ -190,9 +190,14 @@ def get_bipartition_entropies(state):
     bipart_s = np.asarray([vn_entropy(rho) for rho in bipartition_rhos])
     return bipart_s
 
-def get_center_entropy(state):
-    L = int(log(len(state)))
+# get reduced density matrix of of center cut.
+def get_center_rho(state):
+    L = int(log(len(state), 2))
     center_rho = mx.rdms(state, list(range(int(L/2))))
+    return center_rho
+
+def get_center_entropy(state):
+    center_rho = get_center_rho(state)
     center_s = vn_entropy(center_rho)
     return center_s
 
