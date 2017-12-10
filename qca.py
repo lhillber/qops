@@ -255,7 +255,7 @@ N4 = 32786
 # default params dictionary below or request it from the command line.
 #
 # By Logan Hillberry
-# Last updated 21 August 2016
+# Last updated 10 December 2017
 # =============================================================================
 
 
@@ -270,10 +270,12 @@ import numpy as np
 from mpi4py import MPI
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 from matplotlib.backends.backend_pdf import PdfPages
 
 # built in modules
 import os
+import re
 import sys
 import time
 import errno
@@ -293,14 +295,14 @@ mpl.rc('font',**font)
 # --------------------------------------------------------------------------
 defaults = {
         # simulation parameter lists
-        'Ls' : [10],
+        'Ls' : [11],
         'Ts' : [60],
         'Vs' : ['H'],
         'rs' : [1],
         'Ss' : [6],
         'Ms' : [2],
         'ICs': ['d'],
-        'BCs': ['1-00'],
+        'BCs': ['0'],
         # control parameters
         'tasks'     : ['g2-xx', 'g2-yy', 'g2-zz', 'FT-D', 'FT-Y', 'FT-C',
             'scenter', 'sbond', 'bipartitions', 'center_partition'],
@@ -323,6 +325,10 @@ def main(master='master'):
     # make list of params dictionaries
     params_list = make_params_list(thread_as, *args)
     # loop through all requested simulations
+    if rank == 0:
+        print('\n Hello from rank 0! You are running {} jobs on {} cores...'\
+            .format(len(params_list), nprocs))
+
     for sim_id, params in enumerate(params_list):
         # assign independent simulations to available processors
         if sim_id % nprocs == rank:
@@ -332,8 +338,18 @@ def main(master='master'):
             name = make_name(**params)
             master_data_path  = make_path(**dir_params('data', master))
             master_data_fname = os.path.join(master_data_path, name) + '.hdf5'
+
+
+            data_path  = make_path(**dir_params('data', defaults['sub_dir']))
+            name, T = name_check(master_data_fname, data_path)
+            params['T'] = T
+
+            master_data_path  = make_path(**dir_params('data', master))
+            master_data_fname = os.path.join(master_data_path, name) + '.hdf5'
+
             master_plot_path  = make_path(**dir_params('plots', master))
             master_plot_fname = os.path.join(master_plot_path, name) + '.pdf'
+
             # sym link names. Simulation results are soft linked to the
             # user-requested sub_dir
             data_path  = make_path(**dir_params('data', defaults['sub_dir']))
@@ -717,7 +733,6 @@ def get_args():
     # return a list of simulation parameters
     return [defaults[key] for key in sim_param_keys]
 
-
 def make_args_dict(args):
     # list of all simulation parameters in a well defined order
     arg_names = ['Ls', 'Ts', 'Vs', 'rs', 'Ss', 'Ms', 'ICs', 'BCs',
@@ -817,6 +832,35 @@ def make_name(L, T, V, r, S, M, IC, BC):
     name = 'L{}_T{}_V{}_r{}_S{}_M{}_IC{}_BC{}'.format(L, T, V, r, S, M, IC, BC)
     return name
 
+# exclude simulation time, T, as a unique identifying parameter.
+def name_check(master_data_fname, data_path):
+    master_data_path = os.path.dirname(master_data_fname)
+    name = os.path.basename(master_data_fname).split('.hdf5')[0]
+    headT = name.split('_T')[0]
+    tailT = name.split('_V')[1]
+    T = int(name.split('_T')[1].split('_V')[0])
+    #regex for an integer or float
+    anynumber = r'[-/+]?\d*\.?\d+'
+    re_str = headT + '_T' + anynumber + '_V' + tailT + '.hdf5'
+    avail_fnames = [f for f in os.listdir(master_data_path)\
+            if re.match(re_str, f)]
+    if len(avail_fnames) == 1:
+        fname = avail_fnames[0]
+        Tavail = int(os.path.basename(fname).split('_T')[1].split('_V')[0])
+        if T > Tavail:
+            # delete old sim from master and unlink
+            os.remove(os.path.join(master_data_path, fname))
+            os.remove(os.path.join(data_path, fname))
+        elif T <= Tavail:
+            # use existing long T sim
+            headT = name.split('_T')[0]
+            tailT = name.split('_V')[1]
+            name = headT + '_T' + str(Tavail) + '_V' + tailT
+            T = Tavail
+    else:
+        raise ValueError('Too many simulations differ only by T')
+    return name, T
+
 # create and return a file path, makes it if it doesn't exist
 def make_path(project_dir, output_dir, sub_dir, typ):
     path = os.path.join(project_dir, output_dir, sub_dir, typ)
@@ -893,7 +937,6 @@ def recurs_load_dict_hdf5(h5file, path):
     return ans
 
 
-
 # Measures
 # ========
 
@@ -910,8 +953,18 @@ def dep_FT(task):
     elif meas in ('x', 'y', 'z'):
         deps = ['exp-' + meas]
     else:
-        raise ValueError('unknown Fourier transform method for measure \
-            {}'.format())
+        raise ValueError('unknown Fourier transform method for measure {}'.format(meas))
+    return deps
+#
+def dep_FT2D(task):
+    _, meas = task.split('-')
+    if meas in ('s'):
+        deps = [meas]
+    elif meas in ('x', 'y', 'z'):
+        deps = ['exp-' + meas]
+    else:
+        raise ValueError('unknown 2D Fourier transform method for measure\
+        {}'.format(meas))
     return deps
 #
 def dep_MI(task):
@@ -959,12 +1012,19 @@ def init_FT(L, T):
         offset = 300
     return np.zeros(((T - offset + 1) // 2 + 1, 3))
 #
+def init_FT2D(L, T):
+    offset = 0
+    if T > 300:
+        offset = 300
+    nws = (T - offset + 1) // 2 + 1
+    nks = (L + 1) // 2
+    return np.zeros((1 + nws, 1 + nks))
+#
 def init_vec(L, T):
-    return np.zeros((T+1,L))
+    return np.zeros((T+1, L))
 #
 def init_mat(L, T):
     return np.zeros((T+1, L, L))
-
 
 # functions for setting time tasks
 def set_one_site(state, one_site, t):
@@ -1007,6 +1067,14 @@ def set_FT(h5file, res, task):
     if meas in ('x', 'y', 'z'):
         sig = np.mean(sig, axis = 1)
     FT[::,::] = ms.fourier(sig).T
+
+def set_FT2D(h5file, res, task):
+    FT2D = res[task]
+    _, meas = task.split('-')
+    deps = task_map['FT2D']['deps'](task)
+    sig, = gather_deps(h5file, res, deps)
+    FT2D[::,::] = ms.fourier2D(sig)
+
 
 def set_exp2(h5file, res, task):
     exp2 = res[task]
@@ -1066,6 +1134,8 @@ def set_g2(h5file, res, task):
     for t, (exp2, exp1a, exp1b) in enumerate(zip(exp2s, exp1as, exp1bs)):
         g2[t,::, ::] = ms.g2_from_exps(exp2, exp1a, exp1b)
 
+# functions for making fancy names for measures in plots
+# Optional for new measures
 def name_exp(task):
     op = task.split('-')[1]
     title = r'$\langle \sigma^{%s} \rangle$' % op.lower()
@@ -1077,7 +1147,17 @@ def name_FT(task):
     typ, meas = task.split('-')
     title = ''
     xlabel = 'Frequency'
-    ylabel = r'$\mathcal{F}$(%s)' % meas
+    ylabel = r'$\mathcal{P}$(%s)' % meas
+    # TODO: fix slim name degeneracy of disparity Y and expectation <Y>
+    if meas in ('x', 'y', 'z'):
+       ylabel = r'$\mathcal{F}\left(\overline{\langle \sigma^{%s}\rangle}\right)$' % meas.lower()
+    return title, xlabel, ylabel
+
+def name_FT2D(task):
+    typ, meas = task.split('-')
+    xlabel = 'Wavenumber k'
+    ylable = r'Frequency $\omega$'
+    title = r'$\mathcal{P}$(%s)' % meas
     # TODO: fix slim name degeneracy of disparity Y and expectation <Y>
     if meas in ('x', 'y', 'z'):
        ylabel = r'$\mathcal{F}\left(\overline{\langle \sigma^{%s}\rangle}\right)$' % meas.lower()
@@ -1099,7 +1179,7 @@ def name_sbond(task):
 implemented_time_tasks = ['one_site', 'two_site', 'bipartitions',
     'center_partition', 'sbond', 'scenter']
 implemented_meas_tasks = ['exp', 'exp2', 's', 's2', 'MI', 'g2', 'D', 'C', 'Y',
-    'FT']
+    'FT', 'FT2D']
 
 task_map = {
     # time tasks have no dependencies
@@ -1196,9 +1276,14 @@ task_map = {
         'init' : init_FT,
         'set'  : set_FT,
         'name' : name_FT
-
             },
+
+    'FT2D'  : {
+        'deps' : dep_FT2D,
+        'init' : init_FT2D,
+        'set'  : set_FT2D,
         }
+   }
 
 # Init a set of tasks as a dictionary
 def init_tasks(tasks, argss, res={}):
@@ -1299,18 +1384,24 @@ def plot(params, h5file, plot_fname):
     s_tasks = [task for task in tasks if task in ('s', 'sbond')]
     nm_tasks = [task for task in tasks if task in ('D', 'C', 'Y')]
     FT_nm_tasks = [task for task in tasks if task in ('FT-D', 'FT-C', 'FT-Y',
-    'FT-x', 'FT-y','FT-z')]
+        'FT-x', 'FT-y','FT-z')]
+    FT2D_tasks = [task for task in tasks if task in ('FT2D-x', 'FT2D-y',
+        'FT2D-z', 'FT2D-s')]
+
     plot_name(1, params)
     if len(exp_tasks) > 0:
         plot_vecs(2, exp_tasks, h5file)
     if len(s_tasks) > 0:
-        plot_vecs(3, s_tasks, h5file, zspan=[0, 1])
+        plot_vecs(3, s_tasks, h5file)
     if 'scenter' in h5file.keys():
         plot_scenter(4, h5file)
     if len(nm_tasks) > 0:
         plot_network_measures(5, nm_tasks, h5file)
     if len(FT_nm_tasks) > 0:
-        plot_FT_network_measures(6, T, FT_nm_tasks, h5file)
+        plot_FT_network_measures(6, FT_nm_tasks, h5file)
+    if len(FT2D_tasks) > 0:
+        plot_FT2D(7, FT2D_tasks, h5file)
+
     plt.tight_layout()
     multipage(plot_fname)
 
@@ -1397,7 +1488,21 @@ def peak_find(XX, YY, YYlima, YYlimb):
                 xpks.append(xmx)
     return xpks, ypks
 
-def plot_FT_network_measures(fignum, T, FT_nm_tasks, h5file, xspan=None):
+def plot_FT2D(fignum, FT2D_tasks, h5file):
+    fig = plt.figure(fignum)
+    nax = len(FT2D_tasks)
+    for task_id, task in enumerate(FT2D_tasks):
+        ax = fig.add_subplot(1, nax, task_id + 1)
+        FT2D = h5file[task][::]
+        ks = FT2D[0, 1::]
+        ws = FT2D[1::, 0]
+        ps = FT2D[1::, 1::]
+        title, xlabel, ylabel = 'FT2D', 'k', 'w'
+        cax = ax.imshow(ps, interpolation="none", origin='lower',
+                aspect='auto', norm=LogNorm() )
+        cbar=fig.colorbar(cax)
+
+def plot_FT_network_measures(fignum, FT_nm_tasks, h5file, xspan=None):
     fig = plt.figure(fignum)
     nax = len(FT_nm_tasks)
     for task_id, task in enumerate(FT_nm_tasks):

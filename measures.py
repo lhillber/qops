@@ -263,8 +263,9 @@ def autocorr(x, h=1):
     return acorr
 
 def fourier(sig, dt=1, h=1):
+    sig = np.nan_to_num(sig)
     if len(sig)>300:
-        sig = np.nan_to_num(sig)[300:]
+        sig = sig[300:]
     sig =  sig - np.mean(sig)
     n = sig.size
     # normalized powerspectrum
@@ -279,4 +280,29 @@ def fourier(sig, dt=1, h=1):
     rn = rn / (1 - 2*a*np.cos(2*pi*fs/dt) + a**2)
     rn = rn * sum(ps)/sum(rn)
     return np.asarray([fs, ps[:n//2+1], rn])
+
+def fourier2D(vec, dt=1, dx=1):
+    # set nan's to 0
+    vec = np.nan_to_num(vec)
+    T, L = vec.shape
+    # attempt to remove transients
+    if T > 300:
+        vec = vec[300:, ::]
+        T = T - 300
+    vec =  vec - np.mean(vec)
+    # NOTE: The slice at the end of amps is required to cut negative freqs from
+    # axis=0 of #the rfft. This appears to be a bug. Report it.
+    ps = np.absolute( np.fft.fft2(vec) / (L * T) )**2
+    ps = ps[:T//2+1, :L//2+1]
+    #iboard = np.fft.ifft2(fraw).real
+    #amps = amps[0:end+1,0:endk+1]
+    #amps = amps/np.sum(amps)
+    ws = np.fft.rfftfreq(T, d=dt)
+    ks = np.fft.rfftfreq(L, d=dx)
+    ret = np.zeros((T//2+1 +1, L//2+1 + 1))
+    ret[0, 1::] = ks
+    ret[1::, 0] = ws
+    ret[1::, 1::] = ps
+    return ret
+
 
