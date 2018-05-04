@@ -295,7 +295,7 @@ mpl.rc('font',**font)
 # --------------------------------------------------------------------------
 defaults = {
         # simulation parameter lists
-        'Ls' : [11],
+        'Ls' : [12],
         'Ts' : [60],
         'Vs' : ['H'],
         'rs' : [1],
@@ -304,11 +304,18 @@ defaults = {
         'ICs': ['d'],
         'BCs': ['0'],
         # control parameters
-        'tasks'     : ['g2-xx', 'g2-yy', 'g2-zz', 'FT-D', 'FT-Y', 'FT-C',
-            'scenter', 'sbond', 'bipartitions', 'center_partition'],
+        'tasks'     : ['g2-xx', 'g2-yy', 'g2-zz',
+                        'FT-D', 'FT-Y', 'FT-C', 'FT-x', 'FT-z',
+                        'FT2D-x','FT2D-z', 'FT2D-s',
+                        'scenter', 'sbond', 'cut_twos', 'cut_half'],
         'sub_dir'   : 'doublon',
         'thread_as' : 'power'
         }
+
+implemented_meas_tasks = ['exp', 'exp2', 's', 's2', 'MI', 'g2', 'D', 'C', 'Y',
+    'FT', 'FT2D']
+
+
 
 # The main loop, executes all simulations using requested number of processes
 def main(master='master'):
@@ -443,7 +450,6 @@ def time_evolve(params, time_tasks, h5file):
     # get a list of newly added simulations (pop deletes a key from the dictionary
     # and returns the corresponding value)
     added_time_tasks = res.pop('tasks_tmp')
-
     # if the open hdf5 file already has some time tasks available, append the new
     # ones
     try:
@@ -690,6 +696,7 @@ def validate_params(params):
         raise ValueError('BC type {} is not understood'.format(BC[0]))
     return L, T, V, r, S, M, IC, BC_type, BC_conf
 
+
 # summary of simulation ('\n' prints a new line)
 def print_string(params, rank, tasks_added, t_elapsed):
     print_string = '\n' + ('='*80) +'\n'
@@ -844,13 +851,19 @@ def name_check(master_data_fname, data_path):
     re_str = headT + '_T' + anynumber + '_V' + tailT + '.hdf5'
     avail_fnames = [f for f in os.listdir(master_data_path)\
             if re.match(re_str, f)]
-    if len(avail_fnames) == 1:
+    if len(avail_fnames) == 0:
+        # brand new simulation
+        pass
+    elif len(avail_fnames) == 1:
         fname = avail_fnames[0]
         Tavail = int(os.path.basename(fname).split('_T')[1].split('_V')[0])
         if T > Tavail:
             # delete old sim from master and unlink
             os.remove(os.path.join(master_data_path, fname))
-            os.remove(os.path.join(data_path, fname))
+            try:
+                os.remove(os.path.join(data_path, fname))
+            except:
+                print('Deleted target but could not remove link')
         elif T <= Tavail:
             # use existing long T sim
             headT = name.split('_T')[0]
@@ -986,7 +999,7 @@ def init_one_site(L, T):
 def init_two_site(L, T):
     return np.zeros((T+1, int(0.5*L*(L-1)), 4, 4), dtype=complex)
 #
-def init_bipartitions(L, T):
+def init_cut_twos(L, T):
     N = L - 1
     c = int(N/2)
     left_dims = [2**(l+1) for l in range(c)]
@@ -997,7 +1010,7 @@ def init_bipartitions(L, T):
     init_shape = [[np.zeros((d,d), dtype=complex) for d in dims]]*(T+1)
     return init_shape
 #
-def init_center_partition(L, T):
+def init_cut_half(L, T):
     return np.zeros((T+1, 2**int(L/2), 2**int(L/2)), dtype=complex)
 #
 def init_sbond(L, T):
@@ -1016,9 +1029,9 @@ def init_FT2D(L, T):
     offset = 0
     if T > 300:
         offset = 300
-    nws = (T - offset + 1) // 2 + 1
-    nks = (L + 1) // 2
-    return np.zeros((1 + nws, 1 + nks))
+    nws = (T - offset) // 2 + 1 + (T)%2
+    nks = L // 2 + 1
+    return np.zeros((1  + nws, 1 + nks))
 #
 def init_vec(L, T):
     return np.zeros((T+1, L))
@@ -1033,11 +1046,11 @@ def set_one_site(state, one_site, t):
 def set_two_site(state, two_site, t):
     two_site[t, ::, ::, ::] = ms.get_twosite_rhos(state)
 #
-def set_bipartitions(state, bipartitions, t):
-    bipartitions[t][::][::][::] = ms.get_bipartition_rhos(state)
+def set_cut_twos(state, cut_twos, t):
+    cut_twos[t][::][::][::] = ms.get_bipartition_rhos(state)
 #
-def set_center_partition(state, center_partition, t):
-    center_partition[t, ::, ::] = ms.get_center_rho(state)
+def set_cut_half(state, cut_half, t):
+    cut_half[t, ::, ::] = ms.get_center_rho(state)
 #
 def set_sbond(state, sbond, t):
     L = int(log(len(state), 2))
@@ -1176,8 +1189,8 @@ def name_sbond(task):
     return title, xlabel, ylabel
 
 # maping task names to their dep, init, and set functions
-implemented_time_tasks = ['one_site', 'two_site', 'bipartitions',
-    'center_partition', 'sbond', 'scenter']
+implemented_time_tasks = ['one_site', 'two_site', 'cut_twos',
+    'cut_half', 'sbond', 'scenter']
 implemented_meas_tasks = ['exp', 'exp2', 's', 's2', 'MI', 'g2', 'D', 'C', 'Y',
     'FT', 'FT2D']
 
@@ -1193,14 +1206,14 @@ task_map = {
         'set'  : set_two_site
             },
 
-    'bipartitions' : {
-        'init' : init_bipartitions,
-        'set'  : set_bipartitions
+    'cut_twos' : {
+        'init' : init_cut_twos,
+        'set'  : set_cut_twos
             },
 
-    'center_partition' : {
-        'init' : init_center_partition,
-        'set'  : set_center_partition
+    'cut_half' : {
+        'init' : init_cut_half,
+        'set'  : set_cut_half
             },
 
     'sbond'    : {
@@ -1391,16 +1404,23 @@ def plot(params, h5file, plot_fname):
     plot_name(1, params)
     if len(exp_tasks) > 0:
         plot_vecs(2, exp_tasks, h5file)
+        plot_exp_avg(3, exp_tasks, h5file)
     if len(s_tasks) > 0:
-        plot_vecs(3, s_tasks, h5file)
+        plot_vecs(4, s_tasks, h5file)
+
+    if 's' in h5file.keys():
+        plot_scalar(plt.figure(5).add_subplot(1,1,1),
+                np.mean(h5file['s'][::], axis=1), '', 'Iteration',
+                r'$\overline{s^{\mathrm{center}}}$')
+
     if 'scenter' in h5file.keys():
-        plot_scenter(4, h5file)
+        plot_scenter(6, h5file)
     if len(nm_tasks) > 0:
-        plot_network_measures(5, nm_tasks, h5file)
+        plot_network_measures(7, nm_tasks, h5file)
     if len(FT_nm_tasks) > 0:
-        plot_FT_network_measures(6, FT_nm_tasks, h5file)
+        plot_FT_network_measures(8, FT_nm_tasks, h5file)
     if len(FT2D_tasks) > 0:
-        plot_FT2D(7, FT2D_tasks, h5file)
+        plot_FT2D(9, FT2D_tasks, h5file)
 
     plt.tight_layout()
     multipage(plot_fname)
@@ -1419,11 +1439,21 @@ def plot_vecs(fignum, vec_tasks, h5file, xspan=None, yspan=None, zspan=None):
         vec = h5file[task][::]
         T, L = vec.shape
         if xspan is None: xspan = [0, L]
-        if yspan is None: yspan = [0, min(61, T)]
+        if yspan is None: yspan = [0, min(100, T)]
         if zspan is None: zspan = [-1, 1]
         title, xlabel, ylabel = task_map[task.split('-')[0]]['name'](task)
         ax = plot_vec(ax, vec, '', xlabel, ylabel, title, xspan, yspan,
                 zspan)
+
+def plot_exp_avg(fignum, exp_tasks, h5file):
+    fig = plt.figure(fignum)
+    ax = fig.add_subplot(1, 1, 1)
+    for task_id, task in enumerate(exp_tasks):
+        scalar = np.mean(h5file[task][::], axis=1)
+        title, xlabel, ylabel = task_map[task.split('-')[0]]['name'](task)
+        ax = plot_scalar(ax, scalar, 'spatial spin averages',
+            xlabel, ylabel, label=title)
+    ax.legend()
 
 def plot_vec(ax, vec, title, xlabel, ylabel, zlabel, xspan, yspan, zspan):
     cax = ax.imshow(vec[yspan[0]:yspan[1], xspan[0]:xspan[1]],
@@ -1498,9 +1528,11 @@ def plot_FT2D(fignum, FT2D_tasks, h5file):
         ws = FT2D[1::, 0]
         ps = FT2D[1::, 1::]
         title, xlabel, ylabel = 'FT2D', 'k', 'w'
-        cax = ax.imshow(ps, interpolation="none", origin='lower',
+        ps[0, 0] = np.nan
+        if np.mean(ps) > 1e-14:
+            cax = ax.imshow(ps, interpolation="none", origin='lower',
                 aspect='auto', norm=LogNorm() )
-        cbar=fig.colorbar(cax)
+            cbar=fig.colorbar(cax)
 
 def plot_FT_network_measures(fignum, FT_nm_tasks, h5file, xspan=None):
     fig = plt.figure(fignum)

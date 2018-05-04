@@ -15,18 +15,28 @@ import scipy.linalg
 import matrix as mx
 from math import pi
 
+
+# eigenvalue spectrum of reduced density matrix rho
+# -------------------------------------------------
+def spectrum(rho):
+    spec = sp.linalg.eigvalsh(rho)
+    return spec
+
 # von Neumann entropy of reduced density matrix rho
 # -------------------------------------------------
-def vn_entropy(rho, tol=1e-14, get_snum=False):
+def vn_entropy(rho, tol=1e-14):
+    spec = spectrum(rho)
     # define 0 log 0 = 0 where 0 = tol
-    evals = sp.linalg.eigvalsh(rho)
-    s = -sum(el*log(el, 2) if el >= tol else 0.0  for el in evals)
-    # option for schmidt rank (number of non zero evals of rho)
-    if get_snum:
-        snum = sum(el > tol for el in evals)
-        return s, snum
-    else:
-        return s
+    s = -sum(el*log(el, 2) if el >= tol else 0.0  for el in spec)
+    return s
+
+
+# von Neumann entropy of reduced density matrix rho with spectrum spec
+# --------------------------------------------------------------------
+def vn_entropy_from_spec(spec, tol=1e-14):
+    s = -sum(el*log(el, 2) if el >= tol else 0.0  for el in spec)
+    return s
+
 
 # expectation value of operator A w.r.t state
 # -------------------------------------------
@@ -36,7 +46,7 @@ def exp_val(state, A):
         exp_val = np.real(np.trace(state.dot(A)))
     elif len(state.shape) == 1:
         # input is a state vector
-        exp_val = np.real(np.conj(state).dot(A.dot(state)))
+        exp_val = np.real(np.conjugate(state).dot(A.dot(state)))
     else:
         raise ValueError('Input state not understood')
     return exp_val
@@ -76,7 +86,6 @@ def network_disparity(mat, eps=1j*1e-17):
     numerator=np.sum(mat**2,axis=1)
     denominator=np.sum(mat, axis=1)**2
     return (1/len(mat) * sum(numerator/(denominator + eps))).real
-
 
 # get list of local density matrices
 # ----------------------------------
@@ -203,7 +212,6 @@ def get_center_entropy(state):
 
 # mutual information
 # ------------------
-
 def get_MI(state, eps=1e-14):
     s = get_local_entropies(state)
     s2 = get_twosite_entropies(state)
@@ -299,10 +307,8 @@ def fourier2D(vec, dt=1, dx=1):
     #amps = amps/np.sum(amps)
     ws = np.fft.rfftfreq(T, d=dt)
     ks = np.fft.rfftfreq(L, d=dx)
-    ret = np.zeros((T//2+1 +1, L//2+1 + 1))
+    ret = np.zeros((len(ws) + 1, len(ks) + 1))
     ret[0, 1::] = ks
     ret[1::, 0] = ws
     ret[1::, 1::] = ps
     return ret
-
-

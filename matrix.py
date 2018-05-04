@@ -80,7 +80,7 @@ def rdms(state, js, ds=None):
         for j in range(i, djs):
             Rij = np.inner(block[i,:], np.conj(block[j,:]))
             RDM[i, j] = Rij
-            RDM[j, i] = np.conj(Rij)
+            RDM[j, i] = np.conjugate(Rij)
     return RDM
 
 
@@ -298,16 +298,6 @@ def spmatkron(matlist):
 def listdot(matlist):
     return reduce(lambda A, B: np.dot(A, B), matlist)
 
-
-# replace small elements in an array
-# ----------------------------------
-def edit_small_vals(mat, tol=1e-14, replacement=0.0):
-    if not type(mat) is np.ndarray:
-        mat = np.asarray(mat)
-    mat[mat<=tol] = replacement
-    return mat
-
-
 # concatinate two dictionaries (second arg replaces first if keys in common)
 # --------------------------------------------------------------------------
 def concat_dicts(d1, d2):
@@ -315,12 +305,10 @@ def concat_dicts(d1, d2):
     d.update(d2)
     return d
 
-
 # concatinate a list of dictionaries
 # ----------------------------------
 def listdicts(dictlist):
     return reduce(lambda d1, d2: concat_dicts(d1, d2), dictlist)
-
 
 # convert n in base-10 to base-2 with count digits
 # ------------------------------------------------

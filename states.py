@@ -26,6 +26,9 @@
 #  rand_state |  r  | <p>-<s>_t<th>-p<ph>_t<th>-p<ph>  | 'r75_t45-p90'
 #             |     |                                  | 'r5-234_t45-p90'
 # ------------+-----+----------------------------------+------------------------
+#  rand_plus  |  p |<i>_<p>-<s>_t<th>-p<ph>_t<th>-p<ph>| 'p10_75-123
+#             |     |                                  | 'p9_5-123'
+# ------------+-----+----------------------------------+------------------------
 #   doublon   |  d  |     t<th>-p<ph>_t<th>-p<ph>      | 'd'  = |1010...>
 #             |     |                                  | 'dt0-p0_t180-p0'
 # ------------+-----+----------------------------------+------------------------
@@ -78,6 +81,13 @@
 #                    <s>: OPTIONAL - seed for random number generator
 #       + sections 2 and 3, same as sections 2 and 3 in fock above
 #
+#   + rand_plus: p<i>_<p>-<s> a random fock state with site i set excited:
+#       + section 1, <i>: site index of excitation
+#       + section 2, <p>: probability of excitation at each site expressed as an
+#                         int, e.g.  p=75 means prob of 3/4 for an excitation
+#                    <s>: OPTIONAL - seed for random number generator
+#       + sections 3 and 4, same as sections 2 and 3 in fock above
+#
 #   + rand_throw: R<s> random qubits:
 #       + section 1, <s>: seed for random number generator
 #
@@ -120,7 +130,7 @@ bvecs = {
 def edit_small_vals(mat, tol=1e-14, replacement=0.0):
     if not type(mat) is np.ndarray:
         mat = np.asarray(mat)
-    mat[mat<=tol] = replacement
+    mat[np.abs(mat)<=tol] = replacement
     return mat
 
 
@@ -178,6 +188,7 @@ def fock(L, config):
 def doublon(L, config):
     fock_config = '-'.join([str(i) for i in range(L) if i%2 == 0])
     fock_config = ''.join([fock_config, config])
+    print(fock_config)
     return fock(L, fock_config)
 
 # create GHZ state
@@ -261,11 +272,44 @@ def rand_state(L, config):
     distrib = np.random.choice(['ex','bg'], size=L, p=prob)
     return listkron([state_dict[i] for i in distrib])
 
+def rand_plus(L, config):
+    exs_ps_qex_qbg_conf = config.split('_')
+    exs = exs_ps_qex_qbg_conf[0].split('-')
+    exs = np.array([int(ex) for ex in exs])
+    ps = exs_ps_qex_qbg_conf[1].split('-')
+    p = float('.'+ps[0])
+    prob = [p, 1.0 - p]
+    s = None
+    if len(ps) == 2:
+        s = ps[1]
+    if s is not None:
+        np.random.seed(int(s))
+
+    if len(exs_ps_qex_qbg_conf) == 2:
+        state_dict = {'ex':bvecs['1'], 'bg':bvecs['0']}
+
+    if len(exs_ps_qex_qbg_conf) == 3:
+        ex_th, ex_ph = exs_ps_qex_qbg_conf[2].split('-')
+        ex_th = float(ex_th[1:])
+        ex_ph = float(ex_ph[1:])
+        state_dict = {'ex':qubit(ex_th, ex_ph), 'bg':bvecs['0']}
+
+    if len(exs_ps_qex_qbg_conf) == 4:
+        ex_th, ex_ph = exs_ps_qex_qbg_conf[2].split('-')
+        ex_th = float(ex_th[1:])
+        ex_ph = float(ex_ph[1:])
+        bg_th, bg_ph = exs_ps_qex_qbg_conf[3].split('-')
+        bg_th = float(bg_th[1:])
+        bg_ph = float(bg_ph[1:])
+        state_dict = {'ex':qubit(ex_th, ex_ph), 'bg':qubit(bg_th, bg_ph)}
+    distrib = np.random.choice(['ex','bg'], size=L, p=prob)
+    distrib[exs] = 'ex'
+    state = listkron([state_dict[q] for q in distrib])
+    return state
 
 # random throw in Hilbert space
 # -----------------------------
 def random_throw(L, config):
-
     np.random.seed(None)
     if len(config)>0:
         np.random.seed(int(config))
@@ -308,6 +352,7 @@ smap = { 'f' : fock,
          'c' : center,
          's' : spin_wave,
          'r' : rand_state,
+         'p' : rand_plus,
          'R' : random_throw,
          'G' : GHZ,
          'W' : W,
@@ -327,8 +372,8 @@ def make_state (L, IC):
             name = s[1][0]
             config = s[1][1:]
             state += coeff * smap[name](L, config)
-    return edit_small_vals(state.real) + 1j * edit_small_vals(state.imag)
-
+    state = edit_small_vals(state.real) + 1j * edit_small_vals(state.imag)
+    return state
 
 if __name__ == '__main__':
     import measures as ms
@@ -336,9 +381,9 @@ if __name__ == '__main__':
 
     L = 8
     ICs = ['f0-3_t90-p0_t45-p180', 'f2_t90-p90', 'f0-2-4-6', 'st90-P1',
-        'sT2-p30', 'sT2-P1', 'r75_t45-p90', 'r5-234_t45-p90', 'd',
-        'd_t0-p0_t180-p0', 'R234', 'B0-1_3', 'G', 'W', 'c1_f0', 'c4_W', 'c2_r5',
-        [(1/sqrt(2), 'f0'), (1/sqrt(2), 'f1')]]
+        'sT2-p30', 'sT2-P1', 'r75_t45-p90', 'r5-234_t45-p90',
+        'p0_5-12_t90-p90', 'd', 'd_t0-p0_t180-p0', 'R234', 'B0-1_3', 'G',
+        'W', 'c1_f0', 'c4_W', 'c2_r5', [(1/sqrt(2), 'f0'), (1/sqrt(2), 'f1')]]
 
     print("Testing: create all example states for a system of "+str(L)+" sites and measure the expectation value of spin in the X, Y, and Z directions at each site, the von Neumann entropy of each site, and the von Neumann entropy of all bipartitions of the sites.\n")
     for IC_id, IC in enumerate(ICs):
@@ -355,4 +400,3 @@ if __name__ == '__main__':
         print("<Z>: ", zs)
         print("S_vN: ", ss)
         print("S_b: ", sb, "\n")
-
