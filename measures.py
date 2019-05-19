@@ -4,6 +4,7 @@ from numpy.linalg import matrix_power
 import scipy as sp, scipy.linalg, matrix as mx
 from math import pi
 
+
 def spectrum(rho):
     spec = sp.linalg.eigvalsh(rho)
     return spec
@@ -20,8 +21,8 @@ def renyi_entropy(rho, order=2, tol=1e-14):
         return vn_entropy(rho, tol=tol)
     else:
         denom = 1.0 - order
-        #spec = spectrum(rho)
-        #s = np.real(log2(np.sum(spec**order)) / denom)
+        # spec = spectrum(rho)
+        # s = np.real(log2(np.sum(spec**order)) / denom)
         s = np.real(log2(np.trace(matrix_power(rho, order))) / denom)
     return s
 
@@ -33,7 +34,7 @@ def exp_val(state, A):
         if len(state.shape) == 1:
             exp_val = np.real(np.conjugate(state).dot(A.dot(state)))
         else:
-            raise ValueError('Input state not understood')
+            raise ValueError("Input state not understood")
     return exp_val
 
 
@@ -71,13 +72,17 @@ def get_local_rhos(state):
 
 def get_twosite_rhos(state):
     L = int(log2(len(state)))
-    twosite_rhos = np.asarray([mx.rdms(state, [j, k]) for j in range(L) for k in iter(range(j))])
+    twosite_rhos = np.asarray(
+        [mx.rdms(state, [j, k]) for j in range(L) for k in iter(range(j))]
+    )
     return twosite_rhos
 
 
 def select_twosite(twosite_rhos, j, k):
     if j == k:
-        raise ValueError('[{}, {}] not valid two site indicies (cannot be the same)'.format(j, k))
+        raise ValueError(
+            "[{}, {}] not valid two site indicies (cannot be the same)".format(j, k)
+        )
     row = max(j, k)
     col = min(j, k)
     ind = sum(range(row)) + col
@@ -202,7 +207,7 @@ def MI_from_entropies(s, s2, eps=1e-14):
                 MI[(j, k)] = (s[j] + s[k] - s2[(j, k)]) / 2.0
                 MI[(k, j)] = MI[(j, k)]
             elif j == k:
-                MI[(j, k)] = eps
+                MI[(j, k)] = 0
 
     return MI
 
@@ -240,12 +245,13 @@ def autocorr(x, h=1):
     if denom > 1e-14:
         acorr = acorr / denom
     else:
-        print('auto correlation less than', 0.1, 1e-144)
+        print("auto correlation denom less than", 1e-14)
     return acorr
 
 
 def fourier(sig, dt=1, h=1):
     sig = np.nan_to_num(sig)
+    # remove transient. TODO: check heuristic
     if len(sig) > 300:
         sig = sig[300:]
     sig = sig - np.mean(sig)
@@ -257,7 +263,7 @@ def fourier(sig, dt=1, h=1):
     rn = 1 - a ** 2
     rn = rn / (1 - 2 * a * np.cos(2 * pi * fs / dt) + a ** 2)
     rn = rn * sum(ps) / sum(rn)
-    return np.asarray([fs, ps[:n // 2 + 1], rn])
+    return np.asarray([fs, ps[: n // 2 + 1], rn])
 
 
 def fourier2D(vec, dt=1, dx=1):
@@ -268,7 +274,7 @@ def fourier2D(vec, dt=1, dx=1):
         T = T - 300
     vec = vec - np.mean(vec)
     ps = np.absolute(np.fft.fft2(vec) / (L * T)) ** 2
-    ps = ps[:T // 2 + 1, :L // 2 + 1]
+    ps = ps[: T // 2 + 1, : L // 2 + 1]
     ws = np.fft.rfftfreq(T, d=dt)
     ks = np.fft.rfftfreq(L, d=dx)
     ret = np.zeros((len(ws) + 1, len(ks) + 1))

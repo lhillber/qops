@@ -1,6 +1,6 @@
 from cmath import sqrt, sin, cos, exp, pi
 import numpy as np, random
-from matrix import listkron
+from matrix import listkron, dec_to_bin, op_on_state
 
 bvecs = {'0':np.array([1.0, 0.0], dtype=complex), 
  '1':np.array([0.0, 1.0], dtype=complex), 
@@ -46,6 +46,44 @@ def make_config_dict(config):
                 print(config_list)
     return config_dict
 
+def gridedge(m, n):
+    E = np.zeros((2 * n*m  - m - n, 2), dtype=np.int32)
+    for i in range(n*m):
+        if i % n != n - 1:
+            E[i - i // n, 0], E[i - i // n, 1] = i, i + 1
+        if i < (m - 1) * n:
+            E[(n - 1) * m + i, 0], E[(n - 1) * m + i, 1] = i, i + n
+    return E
+
+def cluster(L, config):
+    try:
+        mn, ph = config.split("_")
+        ph = float(ph) * np.pi / 180
+        m, n = map(int, mn.split("-"))
+    except:
+        ph = 45.0 * np.pi / 180
+        m, n = map(int, config.split("-"))
+    assert L == m * n
+    E = gridedge(m, n)
+    Cphase = np.eye(4, dtype=np.complex128)
+    Cphase[3,3] = np.exp(1j*ph)
+
+    # equal superposition for all qubits
+    state = listkron([bvecs["es"]]*(m*n))
+    # apply phase gate according to edges of graph
+    for e in E:
+        state = op_on_state(Cphase, e, state)
+    return state
+
+def cluster_all(L, config):
+    state = np.zeros(2**L, dtype=np.complex128)
+    for k in range(2**L):
+        b = dec_to_bin(k, L)
+        c = 1.0
+        for j in range(L-1):
+            c *= (-1) ** (b[j]*b[j+1])
+        state += c * listkron([bvecs[str(bj)] for bj in b])
+    return state / 2**(L/2)
 
 def fock(L, config):
     config_dict = make_config_dict(config)
@@ -261,7 +299,8 @@ smap = {'f':fock,
  's':spin_wave, 
  'r':rand_state, 
  'p':rand_plus, 
- 'R':random_throw, 
+ 'R':random_throw,
+ 'C':cluster,
  'G':GHZ, 
  'W':W, 
  'B':Bell,

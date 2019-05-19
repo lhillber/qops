@@ -875,7 +875,7 @@ def set_g2(h5file, res, task):
 
 def name_exp(task):
     op = task.split("-")[1]
-    title = "$\\langle \\sigma^{%s} \\rangle$" % op.lower()
+    title = "$\\langle \\sigma^{%s}_j \\rangle$" % op.lower()
     xlabel = "Site"
     ylabel = "Iteration"
     return (title, xlabel, ylabel)
@@ -908,14 +908,22 @@ def name_FT2D(task):
 
 
 def name_s(task):
-    title = "$s^{\\mathrm{vN}}$"
+    try:
+        order = task.split("-")[1]
+    except:
+        order = 1
+    title = r"$s^{(%s)}_j$" % order
     xlabel = "Site"
     ylabel = "Iteration"
     return (title, xlabel, ylabel)
 
 
 def name_sbond(task):
-    title = "$s^{\\mathrm{bond}}$"
+    try:
+        order = task.split("-")[1]
+    except:
+        order = 1
+    title = r"$s^{(%d)}_{L/2}$" % order
     xlabel = "Cut"
     ylabel = "Iteration"
     return (title, xlabel, ylabel)
@@ -1091,27 +1099,40 @@ def plot(params, h5file, plot_fname):
         plot_exp_avg(3, exp_tasks, h5file)
     if len(s_tasks) > 0:
         plot_vecs(4, s_tasks, h5file)
-    if "s" in h5file.keys() or "s-2" in h5file.keys():
-        try:
-            s = h5file["s"][:]
-        except:
-            s = h5file["s-2"][:]
+    if "s" in h5file.keys():
+        s = h5file["s"][:]
+        title = "$\\overline{s^{(1)_j}$"
+
+    elif "s-2" in h5file.keys():
+        s = h5file["s-2"][:]
+        title = "$\\overline{s^{(2)_j}$"
 
         plot_scalar(
             plt.figure(5).add_subplot(1, 1, 1),
             np.mean(s, axis=1),
             "",
             "Iteration",
-            "$\\overline{s^{\\mathrm{vN}}}$",
         )
-    if "scenter" in h5file.keys() or "scenter-2" in h5file.keys():
-        plot_scenter(6, h5file)
+    if "scenter" in h5file.keys():
+        fig = plt.figure(6)
+        ax = fig.add_subplot(1, 1, 1)
+        scenter = h5file["scenter"][:]
+        title = r"$S^(1)_{L/2}$"
+        plot_scalar(ax, scenter, "", "Iteration", title)
+
+    elif "scenter-2" in h5file.keys():
+        fig = plt.figure(7)
+        ax = fig.add_subplot(1, 1, 1)
+        scenter = h5file["scenter-2"][:]
+        title = r"$S^(2)_{L/2}$"
+        plot_scalar(ax, scenter, "", "Iteration", title)
+
     if len(nm_tasks) > 0:
-        plot_network_measures(7, nm_tasks, h5file)
+        plot_network_measures(8, nm_tasks, h5file)
     if len(FT_nm_tasks) > 0:
-        plot_FT_network_measures(8, FT_nm_tasks, h5file)
+        plot_FT_network_measures(9, FT_nm_tasks, h5file)
     if len(FT2D_tasks) > 0:
-        plot_FT2D(9, FT2D_tasks, h5file)
+        plot_FT2D(10, FT2D_tasks, h5file)
     plt.tight_layout()
     multipage(plot_fname)
 
@@ -1121,10 +1142,13 @@ def plot_scenter(fignum, h5file):
     ax = fig.add_subplot(1, 1, 1)
     try:
         scenter = h5file["scenter"][:]
+        title = r"$S^(1)_{L/2}$"
+        plot_scalar(ax, scenter, "", "Iteration", title)
     except:
+        title = r"$S^(2)_{L/2}$"
         scenter = h5file["scenter-2"][:]
+        plot_scalar(ax, scenter, "", "Iteration", title)
 
-    plot_scalar(ax, scenter, "", "Iteration", "$s^{\\mathrm{center}}$")
 
 
 def plot_vecs(fignum, vec_tasks, h5file, xspan=None, yspan=None, zspan=None):

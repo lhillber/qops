@@ -1,21 +1,10 @@
-import matrix as mx
-from matrix import ops
 import numpy as np
 from numpy.linalg import eigvalsh
-from numpy.linalg import eigh
 import matplotlib.pyplot as plt
-from scipy.linalg import expm
 from scipy.special import gamma
 from scipy.optimize import curve_fit
-from copy import copy
-import measures as ms
-from states import make_state
 from qca import multipage
-from matplotlib.ticker import MaxNLocator
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-
 from figure3 import select
-
 
 # plotting defaults
 import matplotlib as mpl
@@ -29,67 +18,105 @@ mpl.rc("font", **font)
 
 
 def brody_fit(x, n):
-    def brody_func(x, eta):
+    def brody_func(x, eta, A):
         b = (gamma((eta + 2) / (eta + 1))) ** (eta + 1.0)
-        return b * (eta + 1.0) * x ** eta * np.exp(-b * x ** (eta + 1.0))
+        return A*b * (eta + 1.0) * x ** eta * np.exp(-b * x ** (eta + 1.0))
 
-    popt, pcov = curve_fit(brody_func, x, n, bounds=[0, 1])
+    popt, pcov = curve_fit(brody_func, x, n, p0=[0.0, 1.0], bounds=[0, 1])
 
     def func(x):
         return brody_func(x, *popt)
 
     return func, popt, pcov
 
-
+L = 18
 IC = "c1_f0"
 Skey = [6, 1, 13, 14]
-bin_ubs = [7, 14, 35, 18]
-L = 18
-fig, axs = plt.subplots(len(Skey), 1, figsize=(4, 6), sharex=False)
-fig2, axs2 = plt.subplots(len(Skey), 1, figsize=(4, 6), sharex=True)
+cs = ["darkturquoise", "darkorange", "chartreuse", "crimson"]
 
-for j, (bub, S) in enumerate(zip(bin_ubs, Skey)):
+fig, axs = plt.subplots(1, 1, figsize=(4, 3), sharex=False)
+fig2, axs2 = plt.subplots(1, 1, figsize=(4, 3), sharex=True)
+fig3s = []
+
+for j, (c, S) in enumerate(zip(cs, Skey)):
     sim = select(L, S, IC, V="H", BC="0")
     h5file = sim["h5file"]
     d = h5file["cut_half"][:]
     etas = []
     detas = []
     svns = []
-    i = 0
+    ii = 0
+    t0 = 10
 
-    for rho in d[2:]:
-        bins = np.linspace(0, bub, 20)
-        s = eigvalsh(rho)
-        N = len(s)
-        s = s[s > 1e-3]
-        N = len(s)/N
+    fig3, axs3 = plt.subplots(3,3,figsize=(4,4), sharex=True, sharey=True)
+    for ti, rho in enumerate(d[t0: 100]):
+        e = eigvalsh(rho)
+        es = e[e>1e-13]
+        NN = len(es)
+        es = np.sort(es)
+        es = es[NN//3: 2*NN//3]
+        ns = range(len(es))
+        s = es[1:] - es[:-1]
         s /= np.mean(s)
-        n, bin, _ = axs[j].hist(
-                s, density=True, alpha=1, histtype="step", bins=bins, log=False
+
+        n, bin, _ = axs.hist(
+            s, density=True, alpha=1, histtype="step", bins=15, log=False
         )
-        axs[j].set_title("$R = %d$" % S)
+
         x = (bin[1:] + bin[:-1]) / 2.0
         xs = np.linspace(x[0], x[-1], 300)
         xs = xs[xs > 0]
+
         func, popt, pcov = brody_fit(x, n)
         detas.append(np.sqrt(np.diag(pcov)[0]))
-        axs[j].plot(xs, func(xs))
         etas.append(popt[0])
-        i += 1
 
+        if ti%10 == 0:
+            row, col = ii// 3, ii%3
+            ax3 = axs3[row, col]
+            dn = n[1] - n[0]
+            x = np.insert(x, 0, 0)
+            x = np.insert(x, -1, 0)
+            n = [n[0] - dn/2] + n + [n[-1] + dn/2]
+            ax3.step(x, n, where="mid")
+            ax3.plot(xs, func(xs))
+            ax3.set_title(f"t={t0+ti}",pad=-13)
+            fig3.suptitle("$R = %d$" % S)
+            ii += 1
+            if col == 1 and row == 2:
+                ax3.set_xlabel("$\delta E/\overline{\delta E}$")
+            if col == 0 and row == 1:
+                ax3.set_ylabel("density")
+            ax3.tick_params(direction='inout')
+
+    fig3.subplots_adjust(hspace=0, wspace=0)
+    fig3s.append(fig3)
     etas = np.array(etas)
     detas = np.array(detas)
-    ts = np.arange(2, len(etas)+2)
-    mask = detas < 1
+    ts = np.arange(2, len(etas) + 2)
+    mask = detas < 2
     etas = etas[mask]
     detas = detas[mask]
     ts = ts[mask]
-    axs2[j].errorbar(ts, etas, yerr=detas, fmt="o", elinewidth=1, markersize=2, c="k")
-    axs2[j].set_title("$R = %d$" % S)
-    axs2[j].set_ylabel("$\eta$")
-axs[3].set_xlabel("$s_i / \overline{s_i}$")
-axs2[3].set_xlabel("$t$")
+
+    if S == Skey[0]:
+        pass
+    else:
+        if S == Skey[1]:
+            label = r"$R = %s$" % S
+        else:
+
+            label = str(S)
+        axs2.plot(ts, etas, markersize=2, color=c, label=label)
+        axs2.errorbar(ts, etas, yerr=detas, fmt="o", elinewidth=1, markersize=2, c=c)
+
+    #axs2.errorbar(ts, etas, color=c)
+
+axs2.legend(loc="lower left")
+axs.set_xlabel("$\delta E / \overline{\delta E}$")
+axs2.set_xlabel("$t$")
+axs2.set_ylabel("$\eta$")
 fig.tight_layout()
 fig2.tight_layout()
 
-multipage("figures/spectrum_statistics_fixed-15bins.pdf", figs=[fig2])
+multipage("figures/spectrum_statistics_fixed-15bins.pdf", figs=[fig2]+fig3s)
