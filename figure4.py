@@ -11,6 +11,18 @@ from scipy.optimize import curve_fit
 import glob, os
 from figure2 import select
 
+from matplotlib import rc
+rc("text", usetex=True)
+font = {"size": 9, "weight": "normal"}
+mpl.rc(*("font",), **font)
+mpl.rcParams["pdf.fonttype"] = 42
+mpl.rcParams["text.latex.preamble"] = [
+    r"\usepackage{amsmath}",
+    r"\usepackage{sansmath}",  # sanserif math
+    r"\sansmath",
+]
+
+
 
 def fit_page(sba):
     L = len(sba) + 1
@@ -28,8 +40,8 @@ def fit_page(sba):
 
 
 def simple_plot(plot_fname):
-    figa, axa = plt.subplots(1, 1, figsize=(2.5, 2))
-    for o, (color, S) in enumerate(zip(colors, Skey)):
+    figa, axa = plt.subplots(1, 1, figsize=(1.5, 1.3))
+    for o, (color, S) in enumerate(zip(cs, Skey)):
         for IC in ICkey:
             sb_avg = []
             sb_std = []
@@ -86,28 +98,23 @@ def simple_plot(plot_fname):
                     axa.set_xlabel("$\\ell$")
                     axa.set_ylabel("$\\overline{S}_{\\ell}$")
                     axa.xaxis.set_major_locator(MaxNLocator(integer=True))
-                    axa.set_xticks([0, 4, 8, 12, 16])
-                    axa.set_xticklabels([1, 5, 9, 13, 17])
-                    axa.set_yticks([0, 2.5, 5.0, 7.5])
-    axa.legend(
-        loc=2,
-        fontsize=8,
-        handlelength=1,
-        labelspacing=0.2,
-        handletextpad=0.2,
-        frameon=False,
-    )
-    # plt.show()
-    qca.multipage(plot_fname)
+                    axa.set_xticks([0, 8, 16])
+                    axa.set_xticklabels(["$1$", "$9$", "$17$"])
+                    axa.set_yticks([0, 4, 8])
+    figa.subplots_adjust(left=0.35, bottom=0.32, top=1, right=0.95) 
+    #axa.legend(
+    #    loc=2,
+    #    fontsize=8,
+    #    handlelength=1,
+    #    labelspacing=0.2,
+    #    handletextpad=0.2,
+    #    frameon=False,
+    #)
+    qca.multipage(plot_fname, clip=False)
 
 
 if __name__ == "__main__":
-    mpl.rcParams["text.latex.preamble"] = ["\\usepackage{amsmath}"]
-    font = {"size": 12, "weight": "normal"}
-    mpl.rcParams["mathtext.fontset"] = "stix"
-    mpl.rcParams["font.family"] = "STIXGeneral"
-    mpl.rcParams["pdf.fonttype"] = 42
-    mpl.rc(*("font",), **font)
+
 
     def ket(x):
         return "$\\vert " + x + "\\rangle$"
@@ -120,14 +127,14 @@ if __name__ == "__main__":
         "d7": {"name": ket("d7"), "ls": "-", "c": "C5", "m": "v"},
     }
 
-    colors = ["darkturquoise", "darkorange", "chartreuse", "crimson"]
-    Skey = [13, 14, 1, 6]
+
+    Skey = [13, 14, 6, 1]
+    cs = ["limegreen", "darkorange", "crimson", "darkturquoise"]
 
     Lkey = [10, 12, 14, 16, 18]
-    #colors = ["C0", "k", "C3", "C6", "C7", "C8", "C9"]
     lss = {18: "-", 14: "--", 10: ":"}
     ICkey = ("d4",)
-    plot_fname = "figures/figure4_V3.pdf"
+    plot_fname = "figures/figure4/pagecurves_V1.pdf"
 
     fig = plt.figure(figsize=(3.4, 2))
     gs = gridspec.GridSpec(2, 3)
@@ -137,7 +144,7 @@ if __name__ == "__main__":
 
     axins1 = ax.inset_axes((1 - 0.335, 1 - 0.335, 0.3, 0.3))
 
-    for color, S in zip(colors, Skey):
+    for color, S in zip(cs, Skey):
         for IC in ICkey:
             sb_avg = []
             sb_std = []
@@ -232,7 +239,7 @@ if __name__ == "__main__":
     ax.set_ylim(top=11)
     ax.legend(
         loc=2,
-        fontsize=8,
+        fontsize=9,
         handlelength=1,
         labelspacing=0.2,
         handletextpad=0.2,
@@ -250,4 +257,4 @@ if __name__ == "__main__":
     qca.multipage(plot_fname, clip=False)
     print("plot saved to ", plot_fname)
     plt.close("all")
-    simple_plot("figures/figure4_simple_V3.pdf")
+    simple_plot("figures/figure4/pagecurves-simple_V1.pdf")

@@ -174,9 +174,9 @@ def get_bipartition_entropies(state, order):
     return bipart_s
 
 
-def get_center_rho(state):
+def get_center_rho(state, out=None):
     L = int(log2(len(state)))
-    center_rho = mx.rdms(state, list(range(int(L / 2))))
+    center_rho = mx.rdms(state, list(range(int(L / 2))), out=out)
     return center_rho
 
 

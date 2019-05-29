@@ -53,7 +53,7 @@ def op_on_state_2(local_op_list, js, state):
 
 
 @jit
-def rdms(state, js, ds=None):
+def rdms(state, js, ds=None, out=None):
     js = np.array(js)
     if ds is None:
         L = int(np.log2(len(state)))
@@ -65,12 +65,15 @@ def rdms(state, js, ds=None):
     djs = np.prod(np.array(ds).take(js))
     drest = np.prod(np.array(ds).take(rest))
     block = state.reshape(ds).transpose(ordering).reshape(djs, drest)
-    return rdms_njit(block, ds, ordering, djs, drest)
+    return rdms_njit(block, ds, ordering, djs, drest, out=out)
 
 
 @njit
-def rdms_njit(block, ds, ordering, djs, drest):
-    RDM = np.zeros((djs, djs), dtype=np.complex128)
+def rdms_njit(block, ds, ordering, djs, drest, out=None):
+    if out is None:
+        RDM = np.zeros((djs, djs), dtype=np.complex128)
+    else:
+        RDM = out
     for i in range(djs):
         for j in range(i, djs):
             Rij = np.dot(block[i, :], np.conj(block[j, :]))

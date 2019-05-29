@@ -5,27 +5,25 @@ import measures as ms
 from states import make_state
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from itertools import cycle
-from matplotlib.ticker import MaxNLocator
-from scipy.optimize import curve_fit
 import glob
 import os
 import matplotlib.patheffects as pe
 
-from measures import renyi_entropy
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits.axes_grid1 import ImageGrid
-from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 import matplotlib.colors as mcolors
 import matplotlib.cm as cm
 
+from matplotlib import rc
 
-mpl.rcParams["text.latex.preamble"] = ["\\usepackage{amsmath}"]
+rc("text", usetex=True)
 font = {"size": 9, "weight": "normal"}
-mpl.rcParams["mathtext.fontset"] = "stix"
-mpl.rcParams["font.family"] = "STIXGeneral"
-mpl.rcParams["pdf.fonttype"] = 42
 mpl.rc(*("font",), **font)
+mpl.rcParams["pdf.fonttype"] = 42
+mpl.rcParams["text.latex.preamble"] = [
+    r"\usepackage{amsmath}",
+    r"\usepackage{sansmath}",  # sanserif math
+    r"\sansmath",
+]
 
 
 def shade_color(color, amount=0.5):
@@ -57,7 +55,6 @@ def exp(x):
 
 
 def select(L, S, IC, V, BC, T=None):
-
     maxoverT = False
     if T is None:
         T = "*"
@@ -108,22 +105,6 @@ def cmap_discretize(cmap, N):
     return mcolors.LinearSegmentedColormap(cmap.name + "_%d" % N, cdict, 1024)
 
 
-def cmap_fromcolors(colors):
-    cs = []
-    for color in colors:
-        try:
-            c = mcolors.cnames[color]
-        except:
-            c = color
-        cs.append(mcolors.to_rgba(c))
-    N = len(cs)
-    indices = np.linspace(0, 1.0, N + 1)
-    cdict = {}
-    for ki, key in enumerate(("red", "green", "blue")):
-        cdict[key] = [(indices[i], cs[i - 1, ki], cs[i, ki]) for i in range(N + 1)]
-    return mcolors.LinearSegmentedColormap(cmap.name + "_%d" % N, cdict, 1024)
-
-
 def colorbar(label, ncolors, cmap):
     cmap = cmap_discretize(cmap, ncolors)
     mappable = cm.ScalarMappable(cmap=cmap)
@@ -141,18 +122,21 @@ def moving_average(a, n=3):
     return ret[n - 1 :] / n
 
 
-def network_measures_scatter(Skey):
-    fig, axs = plt.subplots(1, 2, figsize=(3.3, 1.8))
-    BC = "0"
-    meas_axs = [["scenter-2", "C"], ["Y", "C"]]
-    L = 18
-    ICkey = ["f0", "f0-1", "f0-2", "f0-1-2", "d3", "d4", "d5", "d6", "d7"]
-    V = "H"
+def network_measures_scatter(
+    Skey,
+    L=19,
+    BC="1-00",
+    ICkey=["c1_f0", "R123"],
+    V="H",
+    axs=None,
+    meas_axs=[["scenter-2", "C"], ["scenter-2", "Y"]],
+):
+    if axs is None:
+        fig, axs = plt.subplots(2, 1, figsize=(1.5, 2.3))
+    # ICkey = ["f0", "f0-1", "f0-2", "f0-1-2", "d3", "d4", "d5", "d6", "d7"]
     for col, measures in enumerate(meas_axs):
         d = {meas: {"avg": [], "std": [], "c": []} for meas in measures}
         ax = axs[col]
-        ax.set_yscale("log")
-        # ax.set_xscale("log")
         for IC in ICkey:
             for S in Skey:
                 sim = select(L, S, IC, V, BC)
@@ -180,18 +164,18 @@ def network_measures_scatter(Skey):
                     else:
                         d[meas]["avg"] += [np.mean(h5file[meas][500:])]
                         d[meas]["std"] += [np.std(h5file[meas][500:])]
-                # ax.errorbar(
-                #    d[measures[0]]["avg"],
-                #    d[measures[1]]["avg"],
-                #    xerr=d[measures[0]]["std"],
-                #    yerr=d[measures[1]]["std"],
-                # )
-                #
+        # ax.errorbar(
+        #   d[measures[0]]["avg"],
+        #   d[measures[1]]["avg"],
+        #   xerr=d[measures[0]]["std"],
+        #   yerr=d[measures[1]]["std"],
+        #   fmt = ".k",
+        # )
 
         ax.scatter(
             d[measures[0]]["avg"],
             d[measures[1]]["avg"],
-            c=[Skey.index(i) for i in d["C"]["c"]],
+            c=[Skey.index(i) for i in d["scenter-2"]["c"]],
             cmap=cmap,
             linewidths=0.1,
             edgecolor="k",
@@ -202,58 +186,141 @@ def network_measures_scatter(Skey):
 
         print("enter")
         statestrs = ["R123", "W", "GHZ"]
-        ss = [40, 40, 40]
-        Cs = [f"C6-3_{ph}" for ph in np.linspace(30, 180-30, 100)]
-        ss += [3]*len(Cs)
-        statestrs += Cs
-        markers = ["x", "d", "*"]
-        markers += ["."]*len(Cs)
+        markers = ["x", "*", "s", "^"]
+        ss = [40, 40, 40, 40]
+
         for m, s, statestr in zip(markers, ss, statestrs):
             state = make_state(L, statestr)
             dMI = ms.get_MI(state, order=1)
             dsc = ms.get_center_entropy(state, order=2)
-
             dC = ms.network_clustering(dMI)
             dY = ms.network_disparity(dMI)
-            Rdata = {"C": dC, "Y": dY, "scenter-2": dsc}
+            statedata = {"C": dC, "Y": dY, "scenter-2": dsc}
             if m in ("x", "."):
                 facecolors = "k"
             else:
                 facecolors = "none"
-            if m == "*":
-                print(Rdata[measures[0]])
-                print(Rdata[measures[1]])
             ax.scatter(
-                Rdata[measures[0]],
-                Rdata[measures[1]],
+                statedata[measures[0]],
+                statedata[measures[1]],
                 facecolors=facecolors,
                 edgecolors="k",
                 marker=m,
                 s=s,
             )
-        ax.set_yticks([1e-5, 1e-3, 1e-1])
-        if col==1:
-            ax.set_xticks([0.1, 0.4])
-        else:
-            ax.set_xticks([1.0, 8.0])
-        ax.set_ylabel(lines[measures[1] + "avg"]["name"])
-        ax.set_xlabel(lines[measures[0] + "avg"]["name"], labelpad=-5)
 
-    NS = len(Skey)
-    cax, cb = colorbar(r"$R$", ncolors=NS, cmap=cmap)
-    #cb.solids.set_rasterized(False)
-
-    l, u = cax.get_ylim()
-    tick_locs = (np.arange(NS)+0.5) * (u - l) / NS
-    # tick_locs = [(2 * j + 1) / 8.0 for j in range(Skey)]
-    cb.set_ticks(tick_locs)
-    cb.set_ticklabels(Skey)
-    plt.tight_layout()
-    plt.subplots_adjust(wspace=0.1)
-    ax.label_outer()
+        ax.minorticks_off()
+        ax.set_xticks([1, 4, 7])
+        if meas == "C":
+            ax.set_yscale("log")
+            ax.set_yticks([1e-5, 1e-3, 1e-1])
+            ax.set_yticklabels([])
+            ax.set_ylim([5e-6, 1.1])
+            ax.set_xticklabels([])
+        elif meas == "Y":
+            ax.set_yticks([0.05, 0.25, 0.45])
+            ax.set_yticklabels([])
+            ax.set_xticklabels(["$1$", "$4$", "$7$"])
+            ax.set_xlabel(lines[measures[0] + "avg"]["name"], labelpad=-1)
 
 
-def plot_deltaS_bond(Skey):
+def network_measures_timeseries(
+    Skey,
+    L=19,
+    BC="1-00",
+    ICkey=["c1_f0", "R123"],
+    Vkey=["H"],
+    axs=None,
+    measures=["C", "Y"],
+):
+    if axs is None:
+        fig, axs = plt.subplots(2, 1, figsize=(3, 2.3), sharex=True)
+    for col, meas in enumerate(measures):
+        ax = axs[col]
+        Rstack = []
+        lss = ["-", "--", ":"]
+        for V in Vkey:
+            for IC in ICkey:
+                for S in Skey:
+                    if S == 14:
+                        Vs = Vkey
+                        c = cs[Skey.index(S)]
+                        ls = lss[Vs.index(V)]
+                    else:
+                        Vs = ["H"]
+                        c = cs[Skey.index(S)]
+                        ls = "-"
+                    sim = select(L, S, IC, V, BC)
+                    if sim is None:
+                        print("No sim!")
+                        continue
+                    S = sim["S"]
+                    L = sim["L"]
+                    IC = sim["IC"]
+                    h5file = sim["h5file"]
+                    d = h5file[meas][3:]
+                    if IC[0] == "R":
+                        Rstack += [d]
+                    else:
+                        zorder = None
+                        if S == 1:
+                            zorder = 10
+                        if V in Vs:
+
+                            md = moving_average(d, n=3)
+                            line, = ax.plot(
+                                3 + np.arange(len(md)),
+                                md,
+                                c=c,
+                                lw=1,
+                                ls="-",
+                                zorder=zorder,
+                            )
+
+                            if ls == "--":
+                                line.set_dashes([2, 2, 10, 2])
+
+                    if meas == "C":
+                        ax.set_yscale("log")
+                        ax.set_yticks([1e-5, 1e-3, 1e-1])
+                        ax.set_ylim([5e-6, 1.0])
+                    elif meas == "Y":
+                        ax.set_yticks([0.05, 0.15, 0.25])
+                        # ax.set_ylim([0.05, 0.245])
+                    ax.set_ylabel(lines[meas]["name"])
+                    ax.set_xlabel("$t$")
+                    ax.label_outer()
+
+
+def cluster_angle_scaling():
+    fig, axs = plt.subplots(3, 1, figsize=(3, 7), sharex=True)
+    phs = np.linspace(10, 360, 100)
+    L = 18
+    bases = ["6-3", "3-6", "9-2", "2-9"]
+    for base in bases:
+        statedata = {"C": [], "Y": [], "sc": []}
+        statestrs = [f"C{base}_{ph}" for ph in phs]
+        for statestr in statestrs:
+            state = make_state(L, statestr)
+            dMI = ms.get_MI(state, order=1)
+            dsc = ms.get_center_entropy(state, order=2)
+            dC = ms.network_clustering(dMI)
+            dY = ms.network_disparity(dMI)
+            statedata["C"].append(dC)
+            statedata["Y"].append(dY)
+            statedata["sc"].append(dsc)
+        axs[0].plot(phs, statedata["C"])
+        axs[1].plot(phs, statedata["Y"])
+        axs[2].plot(phs, statedata["sc"], label=base)
+    axs[2].legend()
+    axs[0].set_ylabel(lines["C"]["name"])
+    axs[1].set_ylabel(lines["Y"]["name"])
+    axs[2].set_ylabel(lines["scenter-2"]["name"])
+    axs[2].set_xlabel("$\phi$ [deg]")
+    axs[2].label_outer()
+
+
+def deltaS_bond_timeseries(Skey):
     for meas in ["scenter-2"]:
         fig, axs = plt.subplots(1, 1, figsize=(3, 1.5), sharey=True, sharex=True)
         BC = "0"
@@ -261,7 +328,6 @@ def plot_deltaS_bond(Skey):
         L = 18
         ICkey = ["f0", "R123"]
         Rstack = []
-        count = 0
         lss = ["-", "--"]
         for V in Vkey:
             for IC in ICkey:
@@ -296,7 +362,6 @@ def plot_deltaS_bond(Skey):
                     Rsc = ms.get_center_entropy(Rstate, order=2)
                     if IC[0] == "R":
                         Rstack += [d]
-                        count += 1
                     else:
                         if V in Vs:
                             line, = ax.plot(
@@ -333,26 +398,159 @@ def plot_deltaS_bond(Skey):
         fig.subplots_adjust(left=0.2, bottom=0.2)
 
 
+def QI_measures(Lkey, measures):
+    statestrs = ["R123", "W", "GHZ"]
+    markers = ["x", "d", "*", "^"]
+    QI = np.zeros((len(statestrs), len(Lkey), len(measures)))
+    for j, statestr in enumerate(statestrs):
+        for k, L in enumerate(Lkey):
+            state = make_state(L, statestr)
+            MI = ms.get_MI(state, order=1)
+            sc = ms.get_center_entropy(state, order=2)
+            C = ms.network_clustering(MI)
+            Y = ms.network_disparity(MI)
+            QI[j, k, 0] = sc
+            QI[j, k, 1] = C
+            QI[j, k, 2] = Y
+    for m, measure in enumerate(["scenter", "C", "Y"]):
+        fig, ax = plt.subplots(1, 1, figsize=(1.3, 1.0))
+        for j, (mk, statestr) in enumerate(zip(markers, statestrs)):
+            if mk in ("x", "."):
+                facecolors = "k"
+            else:
+                facecolors = "none"
+            for k, L in enumerate(Lkey):
+                ax.scatter(
+                    Lkey,
+                    QI[j, :, m],
+                    facecolors=facecolors,
+                    edgecolors="k",
+                    marker=mk,
+                    s=40,
+                )
+        ax.set_ylabel(lines[measures[1] + "avg"]["name"])
+        ax.set_xlabel(lines[measures[0] + "avg"]["name"])
+        # ax.set_yscale("log")
+        fig.subplots_adjust(left=0.22, bottom=0.22, top=0.9)
+
+
+# Lscaling of states, long time averages
+def measure_Lscaling(
+    Skey,
+    Lkey=[7, 9, 11, 13, 15, 17, 19],
+    L=19,
+    BC="1-00",
+    ICkey=["c1_f0", "R123"],
+    V="H",
+    axs=None,
+    measures=["C", "Y"],
+):
+    if axs is None:
+        fig, axs = plt.subplots(2, 1, figsize=(1.3, 1.0))
+
+    lta = np.zeros((len(Skey), len(ICkey), len(Lkey), len(measures)))
+    dlta = np.zeros((len(Skey), len(ICkey), len(Lkey), len(measures)))
+    for i, S in enumerate(Skey):
+        for j, IC in enumerate(ICkey):
+            for k, L in enumerate(Lkey):
+                sim = select(L, S, IC, V, BC)
+                if sim is None:
+                    print("No sim!")
+                    continue
+
+                S = sim["S"]
+                L = sim["L"]
+                IC = sim["IC"]
+                h5file = sim["h5file"]
+
+                for m, measure in enumerate(measures):
+                    if measure == "Dscenter-2":
+                        d = h5file["scenter-2"]
+                        d = np.abs(np.diff(d))
+
+                    else:
+                        d = h5file[measure]
+                    d = d[500:]
+                    # d = moving_average(d, n=L)
+                    lta[i, j, k, m] = np.mean(d)
+                    dlta[i, j, k, m] = np.std(d)
+
+    assert IC[0] == "R"
+    initrand = np.mean(lta[:, 1, :, :], axis=0)
+    dinitrand = np.mean(dlta[:, 1, :, :], axis=0)
+
+    for m, measure in enumerate(measures):
+        ax = axs[m]
+        for i, S in enumerate(Skey):
+            c = cs[i]
+            for j, IC in enumerate(ICkey):
+                r = initrand[:, m]
+                dr = dinitrand[:, m]
+                y = lta[i, j, :, m]
+                dy = dlta[i, j, :, m]
+                x = Lkey
+                if j != 1:
+                    ax.scatter(x, y, marker="o", s=3, c=c)
+                    ax.fill_between(x, y + dy, y - dy, facecolor=c, alpha=0.2)
+                    if measure in ("C", "Dscenter-2", "Y"):
+                        mm, bb = np.polyfit(x, np.log(y), 1)
+                        xs = np.linspace(x[0], x[-1], 100)
+                        ys = np.e ** (bb + mm * xs)
+                        ax.plot(xs, ys, c=c, label=f"$\lambda = {round(mm, 2)}$")
+
+        ax.scatter(x, r, marker="o", s=3, c="k")
+        ax.fill_between(x, r + dr, r - dr, facecolor="k", alpha=0.2)
+        if measure in ("C", "Dscenter-2", "Y"):
+            mm, bb = np.polyfit(x, np.log(r), 1)
+            xs = np.linspace(x[0], x[-1], 100)
+            rs = np.e ** (bb + mm * xs)
+            ax.plot(xs, rs, c="k", label=f"$\lambda = {round(mm, 2)}$")
+
+            # ax.legend(bbox_to_anchor=(1,1))
+
+        ax.set_ylabel(lines[measure + "avg"]["name"], labelpad=-1)
+        if measure == "C":
+            ax.set_yscale("log")
+            ax.set_yticks([1e-5, 1e-3, 1e-1])
+            ax.set_ylim([5e-6, 1.0])
+            ax.set_xticks([6, 12, 18])
+            ax.set_xticklabels([])
+        elif measure == "Y":
+            ax.set_yticks([0.05, 0.25, 0.45])
+            ax.set_xticks([6, 10, 14, 18])
+            ax.set_xlabel("$L$")
+
+
 if __name__ == "__main__":
 
-    # cs = ["olivedrab", "indigo", "crimson", "gold"]
-    cs = ["darkturquoise", "darkorange", "chartreuse", "crimson"]
-    Skey = [13, 14, 1, 6]
+    Skey = [13, 14, 6, 1]
+    cs = ["limegreen", "darkorange", "crimson", "darkturquoise"]
     cmap = mcolors.ListedColormap(cs)
 
     lines = {
         "c1_f0": {"name": ket("010"), "ls": "-", "c": "C5", "m": "v"},
         "exp-z": {"name": exp("\sigma^z"), "ls": "-", "c": "C5", "m": "v"},
         "s-2": {"name": " $s$", "ls": "-", "c": "C5", "m": "v"},
-        "scenter": {"name": " $\Delta S^{(2)}_{L/2}$", "ls": "-", "c": "C5", "m": "v"},
         "scenter-2": {
-            "name": " $\Delta S^{(2)}_{L/2}$",
+            "name": r"$\Delta S^{(2)}_{L/2}$",
             "ls": "-",
             "c": "C5",
             "m": "v",
         },
         "scenter-2avg": {
             "name": " $\overline{S}^{(2)}_{L/2}$",
+            "ls": "-",
+            "c": "C5",
+            "m": "v",
+        },
+        "Dscenter-2": {
+            "name": r"$\Delta S^{(2)}_{L/2}$",
+            "ls": "-",
+            "c": "C5",
+            "m": "v",
+        },
+        "Dscenter-2avg": {
+            "name": r"$\overline{\Delta S}^{(2)}_{L/2}$",
             "ls": "-",
             "c": "C5",
             "m": "v",
@@ -365,75 +563,24 @@ if __name__ == "__main__":
         "Y": {"name": " $\mathcal{Y}$", "ls": "-", "c": "C5", "m": "v"},
     }
 
-    plot_fname = "figures/figure3/figure3_L18_V3.pdf"
+    plot_fname = "figures/figure3/figure3_fixedBC_source.pdf"
 
-    network_measures_scatter(Skey)
-    plot_deltaS_bond(Skey)
+    fig = plt.figure(figsize=(4.75, 2.3), constrained_layout=True)
+    gs = fig.add_gridspec(2, 4)
+    Cax1 = fig.add_subplot(gs[0, :-2])
+    Cax2 = fig.add_subplot(gs[0, -2:-1])
+    Cax3 = fig.add_subplot(gs[0, -1])
 
-    fig, axs = plt.subplots(2, 1, figsize=(3, 2.3), sharex=True)
-    for col, meas in enumerate(["C", "Y"]):
-        ax = axs[col]
-        BC = "0"
-        Vkey = ["H", "HP_45"]
-        L = 18
-        ICkey = ["f0", "R123"]
-        Rstack = []
-        count = 0
-        lss = ["-", "--", ":"]
-        for V in Vkey:
-            for IC in ICkey:
-                for S in Skey:
-                    if S == 14:
-                        Vs = Vkey
-                        c = cs[Skey.index(S)]
-                        ls = lss[Vs.index(V)]
-                    else:
-                        Vs = ["H"]
-                        c = cs[Skey.index(S)]
-                        ls = "-"
-                    sim = select(L, S, IC, V, BC)
-                    if sim is None:
-                        print("No sim!")
-                        continue
-                    S = sim["S"]
-                    L = sim["L"]
-                    IC = sim["IC"]
-                    h5file = sim["h5file"]
-                    d = h5file[meas][10:]
-                    d = moving_average(d, n=L)
-                    Rstate = make_state(L, "R123")
-                    Rsc = ms.get_center_entropy(Rstate, order=2)
-                    if IC[0] == "R":
-                        Rstack += [d]
-                        count += 1
-                    else:
-                        zorder = None
-                        if S == 1:
-                            zorder = 10
-                        if V in Vs:
-                            line, = ax.plot(
-                                d,
-                                c=c,
-                                lw=1,
-                                ls="-",
-                                zorder=zorder,
-                                path_effects=[
-                                    pe.Stroke(linewidth=0.8, foreground="k"),
-                                    pe.Normal(),
-                                ],
-                            )
+    Yax1 = fig.add_subplot(gs[1, :-2])
+    Yax2 = fig.add_subplot(gs[1, -2:-1])
+    Yax3 = fig.add_subplot(gs[1, -1])
 
-                            if ls == "--":
-                                line.set_dashes([2, 2, 10, 2])
+    # network_measures_timeseries(Skey, axs=[Cax1, Yax1])
+    # measure_Lscaling(Skey, axs=[Cax2, Yax2])
+    network_measures_scatter(Skey, axs=[Cax3, Yax3])
+    # fig.subplots_adjust(left=0.175, bottom=0.16, top=0.98, right=0.97, hspace=0.1)
 
-                    if meas == "C":
-                        ax.set_yscale("log")
-                        ax.set_yticks([1e-5, 1e-3, 1e-1])
-                    elif meas == "Y":
-                        ax.set_yticks([0.07, 0.14, 0.21])
-                    ax.set_ylabel(lines[meas]["name"])
-                    ax.set_xlabel("$t$")
-                    ax.label_outer()
-        fig.subplots_adjust(left=0.2, bottom=0.2, hspace=0.1)
-    qca.multipage(plot_fname, clip=True, dpi=10 * fig.dpi)
+    # deltaS_bond_timmeseries(Skey)
+    # cluster_angle_scaling()
+    qca.multipage(plot_fname, clip=False, dpi=300)
     print("plot saved to ", plot_fname)

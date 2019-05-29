@@ -55,7 +55,7 @@ defaults = {
 
 
 def main(
-    master="master_bak", defaults=defaults, rewrite_meas=False, rewrite_time=False
+    master="master", defaults=defaults, rewrite_meas=False, rewrite_time=False
 ):
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -154,6 +154,7 @@ def time_evolve(params, time_tasks, h5file, rank):
     init_args = [(L, T)] * len(time_tasks)
     res = init_tasks(time_tasks, init_args, res={})
     for t, next_state in enumerate(time_step_gen):
+        print(t)
         for task in time_tasks:
             task_slim = task.split("-")[0]
             if task[0] == "s":
@@ -165,12 +166,11 @@ def time_evolve(params, time_tasks, h5file, rank):
                 task_map[task_slim]["set"](next_state, res[task], t, order)
             else:
                 task_map[task_slim]["set"](next_state, res[task], t)
-
     added_time_tasks = res.pop("tasks_tmp")
     try:
         updated_time_tasks = np.append(h5file["time_tasks"][:], added_time_tasks)
         del h5file["time_tasks"]
-    except:
+    except KeyError:
         updated_time_tasks = added_time_tasks
 
     h5file["time_tasks"] = updated_time_tasks
@@ -229,7 +229,7 @@ def get_mode(mode_name, L):
                     m = int(mode_name)
                 except:
                     raise ValueError(
-                        "mode is not swp (d=1), alt (d=2), blk (d=3), or            convertible to an integer step size."
+                        "mode is not swp (d=1), alt (d=2), blk (d=3), or an integer step size."
                     )
 
     return make_mode_list(m, L)
@@ -284,7 +284,7 @@ def make_boundary_Us(V, r, S, BC_conf):
             for i in range(2 ** (r + c)):
                 if w == 0:
                     var = mx.dec_to_bin(i, r + c)
-                    var1 = var[0:c]
+                    var1 = var[:c]
                     var2 = var[c:]
                     fixed = fixed_o[c:r]
                     n = fixed + var1 + var2
@@ -295,25 +295,28 @@ def make_boundary_Us(V, r, S, BC_conf):
                         + [Vmat]
                         + [mx.ops[str(op)] for op in var2]
                     )
-                else:
-                    if w == 1:
-                        var = mx.dec_to_bin(i, r + c)[::-1]
-                        var1 = var[c:][::-1]
-                        var2 = var[0:c]
-                        fixed = fixed_o[0 : r - c]
-                        n = var1 + var2 + fixed
-                        s = Sb[mx.bin_to_dec(n)]
-                        Vmat = get_V(V, s)
-                        ops = (
-                            [mx.ops[str(op)] for op in var1]
-                            + [Vmat]
-                            + [mx.ops[str(op)] for op in var2]
-                        )
+
+                elif w == 1:
+                    var = mx.dec_to_bin(i, r + c)
+                    var1 = var[c:]
+                    var2 = var[:c]
+                    fixed = fixed_o[0 : r - c]
+                    n = var1 + var2 + fixed
+                    s = Sb[mx.bin_to_dec(n)]
+                    Vmat = get_V(V, s)
+                    ops = (
+                        [mx.ops[str(op)] for op in var1]
+                        + [Vmat]
+                        + [mx.ops[str(op)] for op in var2]
+                    )
                 U += mx.listkron(ops)
 
             bUs.append(U)
 
     return bUs
+
+
+
 
 
 def get_V(V, s):
@@ -327,18 +330,18 @@ def iterate(state, U, lUs, rUs, mode_list, L, r, BC_type):
             if j < r:
                 Nj = range(0, j + r + 1)
                 u = lUs[j]
+            elif L - j - 1 < r:
+                Nj = range(j - r, L)
+                u = rUs[L - j - 1]
+            elif r-1<j<L-r:
+                Nj = range(j - r, j + r + 1)
+                u = U
             else:
-                if L - j - 1 < r:
-                    Nj = range(j - r, L)
-                    u = rUs[L - j - 1]
-                else:
-                    Nj = range(j - r, j + r + 1)
-                    u = U
-                Nj = list(Nj)
-                state = mx.op_on_state(u, Nj, state)
+                raise ValueError 
+            Nj = list(Nj)
+            state = mx.op_on_state(u, Nj, state)
 
-    else:
-        if BC_type == "0":
+    elif BC_type == "0":
             for j in mode_list:
                 Nj = [k % L for k in range(j - r, j + r + 1)]
                 state = mx.op_on_state(U, Nj, state)
@@ -763,7 +766,7 @@ def set_cut_twos(state, cut_twos, t):
 
 
 def set_cut_half(state, cut_half, t):
-    cut_half[t, :, :] = ms.get_center_rho(state)
+    ms.get_center_rho(state, out=cut_half[t, :, :])
 
 
 def set_sbond(state, sbond, t, order):
@@ -923,7 +926,7 @@ def name_sbond(task):
         order = task.split("-")[1]
     except:
         order = 1
-    title = r"$s^{(%d)}_{L/2}$" % order
+    title = r"$s^{(%s)}_{L/2}$" % order
     xlabel = "Cut"
     ylabel = "Iteration"
     return (title, xlabel, ylabel)
@@ -1101,17 +1104,18 @@ def plot(params, h5file, plot_fname):
         plot_vecs(4, s_tasks, h5file)
     if "s" in h5file.keys():
         s = h5file["s"][:]
-        title = "$\\overline{s^{(1)_j}$"
+        title = r"$\overline{s^{(1)_j}}$"
 
     elif "s-2" in h5file.keys():
         s = h5file["s-2"][:]
-        title = "$\\overline{s^{(2)_j}$"
+        title = r"$\overline{s^{(2)_j}}$"
 
         plot_scalar(
             plt.figure(5).add_subplot(1, 1, 1),
             np.mean(s, axis=1),
             "",
             "Iteration",
+            title
         )
     if "scenter" in h5file.keys():
         fig = plt.figure(6)
