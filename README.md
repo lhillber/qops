@@ -1,2 +1,2 @@
-See github.com/lhillber/qeca for the latest
+See github.com/lhillber/qca for the latest
 
